@@ -1,18 +1,48 @@
 import { useState, useEffect } from 'react';
 import { Activity, BarChart, Split, Play, CheckCircle2 } from 'lucide-react';
 
+const ALGORITHMS = {
+  classification: [
+    { id: 'logistic_regression', name: 'Logistic Regression' },
+    { id: 'random_forest_classifier', name: 'Random Forest Classifier' },
+    { id: 'svm', name: 'Support Vector Machine (SVM)' }
+  ],
+  regression: [
+    { id: 'linear_regression', name: 'Linear Regression' },
+    { id: 'random_forest_regressor', name: 'Random Forest Regressor' },
+    { id: 'svr', name: 'Support Vector Regressor (SVR)' }
+  ]
+};
+
 export default function ExperimentConfig({ dataset, onStartTraining }) {
   const [targetCol, setTargetCol] = useState('');
   const [taskType, setTaskType] = useState('classification');
   const [missingValue, setMissingValue] = useState('drop');
   const [scaling, setScaling] = useState('standard');
   const [splitRatio, setSplitRatio] = useState(0.8);
+  const [algorithm, setAlgorithm] = useState('');
 
+  // Watchdog 1: Auto-detect Task Type based on Target Column text data
   useEffect(() => {
     if (!targetCol) return;
     const isText = dataset.dtypes[targetCol] === 'object';
     if (isText) setTaskType('classification');
   }, [targetCol, dataset]);
+
+  // Watchdog 2: When Task Type changes, reset algorithm to the first available for that type
+  useEffect(() => {
+    setAlgorithm(ALGORITHMS[taskType][0].id);
+  }, [taskType]);
+
+  // Watchdog 3: Smart Scaling for Tree-Based Models
+  useEffect(() => {
+    if (algorithm.includes('random_forest')) {
+      setScaling('none');
+    } else if (scaling === 'none') {
+      // If they switch away from Random Forest, reset scaling back to standard
+      setScaling('standard');
+    }
+  }, [algorithm]);
 
   const handleStart = () => {
     if (!targetCol) return alert("Please select a target column first!");
@@ -21,6 +51,7 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
       filename: dataset.filename,
       target: targetCol,
       task_type: taskType,
+      algorithm: algorithm, // Now sending the specific algorithm to Python!
       preprocessing: {
         missing_value_strategy: missingValue,
         scaling: scaling,
@@ -86,6 +117,29 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
                 ))}
               </div>
             </div>
+
+            {/* NEW: Algorithm Dropdown */}
+            <div className="mt-2">
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Select Algorithm</label>
+              <div className="relative">
+                <select 
+                  value={algorithm}
+                  onChange={(e) => setAlgorithm(e.target.value)}
+                  className="w-full appearance-none bg-dark-900/50 border border-slate-700 hover:border-brand-indigo/50 rounded-lg px-4 py-2.5 text-slate-200 focus:ring-1 focus:ring-brand-indigo outline-none transition text-sm"
+                >
+                  {ALGORITHMS[taskType].map((algo) => (
+                    <option key={algo.id} value={algo.id} className="bg-dark-800 text-slate-200">
+                      {algo.name}
+                    </option>
+                  ))}
+                </select>
+                {/* Arrow Icon */}
+                <div className="absolute right-3 top-3 pointer-events-none">
+                  <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-slate-500"></div>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -112,17 +166,28 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
               </select>
             </div>
 
-            {/* Scaling */}
+            {/* Smart Scaling */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">Scaling</label>
               <select 
                 value={scaling}
                 onChange={(e) => setScaling(e.target.value)}
-                className="w-full bg-dark-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:ring-1 focus:ring-brand-cyan outline-none"
+                disabled={algorithm.includes('random_forest')}
+                className={`w-full bg-dark-900/50 border rounded-lg px-3 py-2 text-sm text-slate-200 outline-none transition-all ${
+                  algorithm.includes('random_forest') 
+                  ? 'opacity-50 cursor-not-allowed border-slate-700' 
+                  : 'border-slate-700 focus:ring-1 focus:ring-brand-cyan'
+                }`}
               >
-                <option value="standard" className="bg-dark-800 text-slate-200">Standard (Z)</option>
-                <option value="minmax" className="bg-dark-800 text-slate-200">MinMax (0-1)</option>
-                <option value="none" className="bg-dark-800 text-slate-200">None</option>
+                {algorithm.includes('random_forest') ? (
+                  <option value="none" className="bg-dark-800 text-slate-200">None (Tree Model)</option>
+                ) : (
+                  <>
+                    <option value="standard" className="bg-dark-800 text-slate-200">Standard (Z)</option>
+                    <option value="minmax" className="bg-dark-800 text-slate-200">MinMax (0-1)</option>
+                    <option value="none" className="bg-dark-800 text-slate-200">None</option>
+                  </>
+                )}
               </select>
             </div>
           </div>
