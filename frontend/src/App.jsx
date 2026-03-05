@@ -38,7 +38,7 @@ const DNABackground = () => {
         const p1 = particles[i]; const p2 = particles[i + 1];
         const dx = p1.x - p2.x; const dy = p1.y - p2.y;
         if (dx * dx + dy * dy < 20000) { 
-          ctx.beginPath(); ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'; ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+          ctx.beginPath(); ctx.strokeStyle = 'rgba(255, 255, 255, 0.4 )'; ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
         }
       }
       animationFrameId = requestAnimationFrame(draw);
