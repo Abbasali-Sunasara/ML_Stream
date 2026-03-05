@@ -1,12 +1,14 @@
 # =========================
-# Windows OS Files
+# Operating System Files
 # =========================
+# Mac
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows (Keeping these so it stays clean when you switch back)
 Thumbs.db
-Thumbs.db:encryptable
-ehthumbs.db
-ehthumbs_vista.db
-*.cab
-*.lnk
 Desktop.ini
 
 # =========================
@@ -20,19 +22,18 @@ Desktop.ini
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Ignore virtual environments no matter where they are
+venv/
 backend/venv/
+.env
 backend/.env
 
 # =========================
 # Node.js / Frontend & Backend
 # =========================
-# Explicitly ignore node_modules in BOTH folders
-backend/node_modules/
-frontend/node_modules/
 node_modules/
-
 npm-debug.log*
-yarn-debug.log*
 
 # Build outputs
 frontend/dist/

@@ -2,3 +2,4 @@ uvicorn
 scikit-learn
 pandas
 numpy
+flask
