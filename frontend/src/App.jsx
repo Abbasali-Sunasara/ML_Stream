@@ -90,7 +90,7 @@ const Navbar = ({ hasDataset, onReset }) => {
 
 function App() {
   const [dataset, setDataset] = useState(null);
-  const [activeTab, setActiveTab] = useState('config'); // 'config' | 'data' | 'analysis'
+  const [activeTab, setActiveTab] = useState('config'); 
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
@@ -151,6 +151,8 @@ function App() {
             </motion.div>
           ) : (
             <motion.div key="dashboard" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-6xl h-full flex flex-col">
+              
+              {/* --- TABS BAR --- */}
               <div className="flex items-center justify-between px-6 py-4 rounded-t-2xl bg-dark-800/80 backdrop-blur-xl border border-white/10 border-b-0">
                  <div className="flex items-center gap-6">
                    <div className="flex items-center gap-3">
@@ -158,15 +160,19 @@ function App() {
                      <div><div className="text-sm font-bold text-white">{dataset.filename}</div><div className="text-xs text-slate-400 font-mono">{dataset.rows} Rows • {dataset.columns} Cols</div></div>
                    </div>
                    <div className="h-8 w-[1px] bg-white/10 mx-2" />
-                   <div className="flex bg-dark-900/50 p-1 rounded-lg border border-white/5">
-                      <button onClick={() => setActiveTab('config')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'config' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><LayoutDashboard className="w-4 h-4" /> Configure</button>
-                      <button onClick={() => setActiveTab('analysis')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'analysis' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><BarChart2 className="w-4 h-4" /> Analysis</button>
-                      <button onClick={() => setActiveTab('data')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'data' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><TableIcon className="w-4 h-4" /> Data</button>
-                   </div>
+                   {!results && (
+                      <div className="flex bg-dark-900/50 p-1 rounded-lg border border-white/5">
+                        <button onClick={() => setActiveTab('config')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'config' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><LayoutDashboard className="w-4 h-4" /> Configure</button>
+                        <button onClick={() => setActiveTab('analysis')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'analysis' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><BarChart2 className="w-4 h-4" /> Analysis</button>
+                        <button onClick={() => setActiveTab('data')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'data' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><TableIcon className="w-4 h-4" /> Data</button>
+                      </div>
+                   )}
                  </div>
               </div>
 
               <div className="flex-1 bg-dark-800/50 backdrop-blur-md border border-white/10 rounded-b-2xl p-6 shadow-2xl overflow-y-auto relative z-20">
+                
+                {/* --- ERRORS --- */}
                 {error && (
                   <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-xl flex items-center gap-3 text-red-200 animate-pulse">
                     <AlertCircle className="w-6 h-6 shrink-0" />
@@ -175,17 +181,169 @@ function App() {
                   </div>
                 )}
 
+                {/* --- RESULTS SCREEN (DYNAMIC BENTO BOX) --- */}
                 {results ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
-                     <CheckCircle className="w-16 h-16 text-green-500" />
-                     <h2 className="text-3xl font-bold text-white">Training Complete!</h2>
-                     <p className="text-slate-400">Model Accuracy: <span className="text-green-400 font-mono text-xl">{(results.metrics.accuracy * 100).toFixed(2)}%</span></p>
-                     <button onClick={() => setResults(null)} className="mt-4 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm">Train Another Model</button>
+                  <div className="flex flex-col w-full h-full max-w-6xl mx-auto py-2">
+                     
+                     {/* Compact Horizontal Banner */}
+                     <div className="flex flex-col sm:flex-row items-center justify-between bg-dark-900/60 p-5 rounded-2xl border border-white/10 shadow-lg mb-6 w-full">
+                        <div className="flex items-center gap-4 mb-4 sm:mb-0">
+                          <div className="bg-green-500/10 p-3 rounded-full border border-green-500/20">
+                             <CheckCircle className="w-7 h-7 text-green-500" />
+                          </div>
+                          <div className="text-left">
+                             <h2 className="text-xl font-bold text-white leading-tight">Model Trained Successfully</h2>
+                             <p className="text-slate-400 text-sm">Automated pipeline execution complete.</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 bg-dark-800/80 px-6 py-3 rounded-xl border border-white/5">
+                           {/* DYNAMIC METRIC CHECK */}
+                           {results.metrics.accuracy !== undefined ? (
+                               <>
+                                 <span className="text-slate-400 text-sm uppercase tracking-wider font-bold">Overall Accuracy</span>
+                                 <span className="text-green-400 font-mono text-2xl font-bold">
+                                    {(results.metrics.accuracy * 100).toFixed(1)}%
+                                 </span>
+                               </>
+                           ) : (
+                               <>
+                                 <span className="text-slate-400 text-sm uppercase tracking-wider font-bold">R² Score (Model Fit)</span>
+                                 <span className="text-brand-cyan font-mono text-2xl font-bold">
+                                    {(results.metrics.r2 * 100).toFixed(1)}%
+                                 </span>
+                               </>
+                           )}
+                        </div>
+                     </div>
+
+                     {/* 3-Column Grid */}
+                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
+                       
+                       {/* 1. DYNAMIC FIRST COLUMN: MATRIX (Classification) OR RMSE (Regression) */}
+                       {results.metrics.confusion_matrix ? (
+                          <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col">
+                             <h3 className="text-xs font-bold text-brand-purple mb-6 uppercase tracking-wider flex items-center gap-2">
+                                <Activity className="w-4 h-4" /> Confusion Matrix
+                             </h3>
+                             
+                             <div className="flex flex-col items-center justify-center flex-1">
+                                <div className="flex mb-2 text-[10px] font-bold text-slate-500 w-full justify-center pl-10">
+                                   <span className="w-16 text-center uppercase">Pred<br/><span className="text-white text-xs">{results.metrics.classes?.[0] || '0'}</span></span>
+                                   <span className="w-16 text-center uppercase">Pred<br/><span className="text-white text-xs">{results.metrics.classes?.[1] || '1'}</span></span>
+                                </div>
+
+                                <div className="flex items-center">
+                                   <div className="flex flex-col mr-3 text-[10px] font-bold text-slate-500 text-right uppercase">
+                                      <span className="h-16 flex flex-col justify-center">Act<br/><span className="text-white text-xs">{results.metrics.classes?.[0] || '0'}</span></span>
+                                      <span className="h-16 flex flex-col justify-center">Act<br/><span className="text-white text-xs">{results.metrics.classes?.[1] || '1'}</span></span>
+                                   </div>
+                                   <div className="grid grid-cols-2 gap-2">
+                                      {results.metrics.confusion_matrix.map((row, rowIndex) => (
+                                         row.map((val, colIndex) => {
+                                            const isCorrect = rowIndex === colIndex;
+                                            return (
+                                               <div 
+                                                  key={`${rowIndex}-${colIndex}`}
+                                                  className={`w-16 h-16 flex flex-col items-center justify-center rounded-xl border transition-transform hover:scale-105
+                                                     ${isCorrect ? 'bg-green-500/10 border-green-500/30 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : 'bg-red-500/10 border-red-500/30 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.1)]'}
+                                                  `}
+                                               >
+                                                  <span className="text-2xl font-bold font-mono">{val}</span>
+                                               </div>
+                                            );
+                                         })
+                                      ))}
+                                   </div>
+                                </div>
+                             </div>
+                          </div>
+                       ) : results.metrics.rmse !== undefined ? (
+                          <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col justify-center items-center text-center">
+                             <h3 className="text-xs font-bold text-brand-purple mb-6 uppercase tracking-wider flex items-center gap-2">
+                                <Activity className="w-4 h-4" /> Regression Error
+                             </h3>
+                             
+                             <div className="flex flex-col items-center justify-center flex-1">
+                                 <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Root Mean Square Error (RMSE)</div>
+                                 <div className="text-5xl font-mono font-bold text-red-400 mt-2">
+                                     {results.metrics.rmse.toFixed(2)}
+                                 </div>
+                                 <div className="text-[11px] text-slate-500 mt-4 px-4">
+                                     This means your AI's predictions are off by an average of ± {results.metrics.rmse.toFixed(2)} units.
+                                 </div>
+                             </div>
+                          </div>
+                       ) : null}
+
+                       {/* 2. FEATURE IMPORTANCE */}
+                       {results.metrics.feature_importance && results.metrics.feature_importance.length > 0 && (
+                          <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col">
+                             <h3 className="text-xs font-bold text-brand-indigo mb-6 uppercase tracking-wider flex items-center gap-2">
+                                <BarChart2 className="w-4 h-4" /> Feature Importance
+                             </h3>
+                             
+                             <div className="space-y-4 flex-1 flex flex-col justify-center">
+                                {results.metrics.feature_importance.map((feat, idx) => {
+                                   const maxImp = results.metrics.feature_importance[0].importance;
+                                   const pct = (feat.importance / maxImp) * 100;
+                                   
+                                   return (
+                                      <div key={feat.feature} className="flex items-center gap-3 group">
+                                         <div className="w-16 text-right text-[10px] font-bold text-slate-300 uppercase truncate group-hover:text-brand-cyan transition-colors">
+                                            {feat.feature}
+                                         </div>
+                                         <div className="flex-1 h-2.5 bg-dark-800 rounded-full overflow-hidden border border-white/5 relative">
+                                            <motion.div 
+                                               initial={{ width: 0 }}
+                                               animate={{ width: `${pct}%` }}
+                                               transition={{ duration: 1, delay: idx * 0.1, ease: "easeOut" }}
+                                               className="absolute top-0 left-0 h-full bg-gradient-to-r from-brand-indigo to-brand-cyan rounded-full shadow-[0_0_10px_rgba(34,211,238,0.5)]"
+                                            />
+                                         </div>
+                                         <div className="w-12 text-left text-[10px] font-mono text-slate-400 group-hover:text-white transition-colors">
+                                            {(feat.importance * 100).toFixed(1)}%
+                                         </div>
+                                      </div>
+                                   )
+                                })}
+                             </div>
+                          </div>
+                       )}
+
+                       {/* 3. DEPLOYMENT & ACTIONS */}
+                       <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col justify-center">
+                           <h3 className="text-xs font-bold text-brand-cyan mb-6 uppercase tracking-wider flex items-center gap-2">
+                              <Cpu className="w-4 h-4" /> Export & Deploy
+                           </h3>
+                           
+                           <a 
+                              href="http://127.0.0.1:5000/download"
+                              download
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-brand-cyan/20 to-brand-indigo/20 hover:from-brand-cyan/30 hover:to-brand-indigo/30 text-white border border-brand-cyan/30 rounded-xl text-sm font-bold transition-all shadow-[0_0_15px_rgba(34,211,238,0.1)] hover:-translate-y-1"
+                           >
+                              <Database className="w-4 h-4 text-brand-cyan" /> Download (.pkl)
+                           </a>
+                           
+                           <p className="text-[10px] text-slate-500 mt-3 text-center">
+                              Deploy these compiled weights into any Python web server.
+                           </p>
+
+                           <div className="w-full h-[1px] bg-white/10 my-4"></div>
+
+                           <button 
+                              onClick={() => setResults(null)} 
+                              className="w-full px-4 py-2 text-slate-400 hover:text-white border border-white/10 hover:bg-white/5 rounded-xl text-xs transition-all font-semibold"
+                           >
+                              ← Retrain Model
+                           </button>
+                       </div>
+
+                     </div>
                   </div>
+
                 ) : activeTab === 'config' ? (
                   <ExperimentConfig dataset={dataset} onStartTraining={trainModel} />
                 ) : activeTab === 'analysis' ? (
-                  // --- NEW ANALYSIS TAB ---
                   <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="p-4 rounded-xl bg-dark-900/50 border border-white/5">

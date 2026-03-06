@@ -1,13 +1,15 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import pandas as pd
+import numpy as np
 import os
+import joblib 
 
 # ML Libraries
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
-from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
+from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, confusion_matrix
 
 # Algorithms
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -21,7 +23,7 @@ UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-# --- 1. UPLOAD ROUTE (UPDATED WITH AI LOGIC) ---
+# --- 1. UPLOAD ROUTE ---
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -38,7 +40,6 @@ def upload_file():
             df = pd.read_csv(filepath)
             rows = df.shape[0]
             
-            # Keep your existing logic for the React Data Preview
             missing_values = df.isnull().sum().to_dict()
             preview = df.head(5).where(pd.notnull(df), None).to_dict(orient='records')
             
@@ -55,14 +56,13 @@ def upload_file():
                 col_type = df[worst_column].dtype
                 
                 if col_type == 'object':
-                    recommendation = "mode" # Text data gets Mode
+                    recommendation = "mode" 
                 else:
-                    # Numeric data: Check for outliers using skewness
                     skewness = df[worst_column].skew()
                     if abs(skewness) > 1:
-                        recommendation = "median" # High outliers get Median
+                        recommendation = "median" 
                     else:
-                        recommendation = "mean"   # Normal distribution gets Mean
+                        recommendation = "mean"   
             # -----------------------------------------
             
             return jsonify({
@@ -74,13 +74,12 @@ def upload_file():
                 'dtypes': {k: str(v) for k, v in df.dtypes.items()},
                 'missing_values': missing_values, 
                 'preview': preview,
-                'missing_recommendation': recommendation # <--- Sending the AI choice to React!
+                'missing_recommendation': recommendation 
             })
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
 
-# --- 2. TRAINING ROUTE ---
 # --- 2. TRAINING ROUTE ---
 @app.route('/train', methods=['POST'])
 def train_model():
@@ -97,50 +96,49 @@ def train_model():
         if target not in df.columns:
             return jsonify({'error': f'Target column "{target}" not found'}), 400
 
-        # --- 1. HANDLE MISSING VALUES (Fully Implemented) ---
         missing_strategy = config.get('preprocessing', {}).get('missing_value_strategy', 'drop')
         
         if missing_strategy == 'drop':
             df = df.dropna()
         else:
-            # Scikit-Learn calls 'mode' -> 'most_frequent'
             sklearn_strategy = 'most_frequent' if missing_strategy == 'mode' else missing_strategy
             
             num_cols = df.select_dtypes(include=['number']).columns
             cat_cols = df.select_dtypes(include=['object']).columns
 
-            # Apply Imputer
             if sklearn_strategy in ['mean', 'median']:
                 if len(num_cols) > 0:
                     num_imputer = SimpleImputer(strategy=sklearn_strategy)
                     df[num_cols] = num_imputer.fit_transform(df[num_cols])
                 if len(cat_cols) > 0:
-                    # Text columns can't have a 'mean', so fallback to mode for text
                     cat_imputer = SimpleImputer(strategy='most_frequent') 
                     df[cat_cols] = cat_imputer.fit_transform(df[cat_cols])
             elif sklearn_strategy == 'most_frequent':
-                # Mode works on both numbers and text
                 imputer = SimpleImputer(strategy='most_frequent')
                 df = pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
 
-        # --- 2. SPLIT FEATURES AND TARGET ---
         X = df.drop(columns=[target])
         y = df[target]
         
-        # For Phase 5, we only train on numerical columns
         X = X.select_dtypes(include=['number'])
         
-        # --- 3. ENCODE TARGET FOR CLASSIFICATION ---
-        task_type = config.get('task_type', 'classification')
+        algorithm = config.get('algorithm', 'random_forest_classifier')
+        
+        # --- AUTO-DETECT TASK TYPE ---
+        if 'regressor' in algorithm or 'regression' in algorithm and algorithm != 'logistic_regression':
+            task_type = 'regression'
+        elif algorithm == 'svr':
+            task_type = 'regression'
+        else:
+            task_type = 'classification'
+            
         if task_type == 'classification' and y.dtype == 'object':
             le = LabelEncoder()
             y = le.fit_transform(y)
 
-        # --- 4. TRAIN / TEST SPLIT ---
         split_ratio = config.get('preprocessing', {}).get('test_size', 0.2)
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=split_ratio, random_state=42)
 
-        # --- 5. SCALING ---
         scaling = config.get('preprocessing', {}).get('scaling', 'none')
         if scaling == 'standard':
             scaler = StandardScaler()
@@ -151,8 +149,6 @@ def train_model():
             X_train = scaler.fit_transform(X_train)
             X_test = scaler.transform(X_test)
 
-        # --- 6. DYNAMIC ALGORITHM SELECTION ---
-        algorithm = config.get('algorithm', 'random_forest_classifier') # Read what React sent!
         model = None
         
         if algorithm == 'logistic_regression':
@@ -170,23 +166,71 @@ def train_model():
         else:
             return jsonify({'error': 'Algorithm not supported'}), 400
             
-        # Train the model
+        # --- TRAIN AND SAVE MODEL ---
         model.fit(X_train, y_train)
         predictions = model.predict(X_test)
         
-        # --- 7. CALCULATE METRICS ---
+        # Save the brain!
+        model_path = os.path.join(UPLOAD_FOLDER, 'trained_model.pkl')
+        joblib.dump(model, model_path)
+        # ----------------------------
+        
         metrics = {}
+        
+        # --- FEATURE IMPORTANCE (Moved outside so it runs for both!) ---
+        feature_importance = []
+        try:
+            if hasattr(model, 'feature_importances_'):
+                importances = model.feature_importances_
+                for i, col in enumerate(X.columns):
+                    feature_importance.append({"feature": col, "importance": float(importances[i])})
+            elif hasattr(model, 'coef_'):
+                importances = model.coef_[0] if len(model.coef_.shape) > 1 else model.coef_
+                for i, col in enumerate(X.columns):
+                    feature_importance.append({"feature": col, "importance": float(abs(importances[i]))})
+            
+            feature_importance = sorted(feature_importance, key=lambda x: x['importance'], reverse=True)
+            metrics['feature_importance'] = feature_importance
+        except Exception as e:
+            print(f"Could not calculate feature importance: {e}")
+            metrics['feature_importance'] = None
+        # -------------------------------------------------------------
+        
         if task_type == 'classification':
-            metrics['accuracy'] = accuracy_score(y_test, predictions)
+            metrics['accuracy'] = float(accuracy_score(y_test, predictions))
+            
+            # Confusion Matrix
+            cm = confusion_matrix(y_test, predictions)
+            metrics['confusion_matrix'] = cm.tolist() 
+            
+            if 'le' in locals():
+                metrics['classes'] = [str(c) for c in le.classes_]
+            else:
+                metrics['classes'] = [str(c) for c in pd.Series(y).unique()]
+                
         else:
-            metrics['rmse'] = mean_squared_error(y_test, predictions, squared=False)
-            metrics['r2'] = r2_score(y_test, predictions)
-
+            # Safe Edge Case: Regression (Fixed Scikit-Learn 1.4 crash)
+            mse = mean_squared_error(y_test, predictions)
+            metrics['rmse'] = float(mse ** 0.5) 
+            metrics['r2'] = float(r2_score(y_test, predictions))
+            
         return jsonify({'status': 'success', 'metrics': metrics})
-
     except Exception as e:
         import traceback
-        print(traceback.format_exc()) # Prints the exact error line in your Mac terminal
+        print(traceback.format_exc()) 
+        return jsonify({'error': str(e)}), 500
+
+# --- 3. DOWNLOAD ROUTE ---
+@app.route('/download', methods=['GET'])
+def download_model():
+    try:
+        model_path = os.path.join(UPLOAD_FOLDER, 'trained_model.pkl')
+        if os.path.exists(model_path):
+            # Send the file to the user's browser as an attachment!
+            return send_file(model_path, as_attachment=True, download_name="ml_studio_model.pkl")
+        else:
+            return jsonify({'error': 'No trained model found'}), 404
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
