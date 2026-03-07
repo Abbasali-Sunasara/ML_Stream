@@ -4,6 +4,10 @@ import pandas as pd
 import numpy as np
 import os
 import joblib 
+import json
+
+# --- Plotly Charting Library ---
+import plotly.express as px
 
 # ML Libraries
 from sklearn.model_selection import train_test_split
@@ -23,7 +27,7 @@ UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-# --- 1. UPLOAD ROUTE ---
+# --- 1. UPLOAD ROUTE (Untouched) ---
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -43,7 +47,6 @@ def upload_file():
             missing_values = df.isnull().sum().to_dict()
             preview = df.head(5).where(pd.notnull(df), None).to_dict(orient='records')
             
-            # --- ADVANCED: AI Missing Values Logic ---
             missing_counts = df.isnull().sum()
             max_missing = int(missing_counts.max())
             
@@ -63,7 +66,6 @@ def upload_file():
                         recommendation = "median" 
                     else:
                         recommendation = "mean"   
-            # -----------------------------------------
             
             return jsonify({
                 'message': 'File uploaded successfully',
@@ -80,7 +82,65 @@ def upload_file():
             return jsonify({'error': str(e)}), 500
 
 
-# --- 2. TRAINING ROUTE ---
+# --- 2. PLOTLY CHARTING ENGINE (With Serialization Fix) ---
+@app.route('/plot', methods=['POST'])
+def generate_plot():
+    try:
+        data = request.json
+        chart_type = data.get('type')
+        x_col = data.get('x')
+        y_col = data.get('y')
+
+        # Load the dataset from the uploads folder
+        filepath = os.path.join(UPLOAD_FOLDER, 'train.csv')
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'Dataset not found. Please upload again.'}), 400
+            
+        df = pd.read_csv(filepath)
+        fig = None
+
+        # 1. SCATTER PLOT (Requires X and Y)
+        if chart_type == 'scatter':
+            if not x_col or not y_col:
+                return jsonify({'error': 'Scatter plots require both X and Y columns.'}), 400
+            fig = px.scatter(df, x=x_col, y=y_col, template="plotly_dark", color_discrete_sequence=['#22d3ee'])
+            
+        # 2. HISTOGRAM / DISTRIBUTION (Requires only X)
+        elif chart_type == 'histogram':
+            fig = px.histogram(df, x=x_col, template="plotly_dark", color_discrete_sequence=['#8b5cf6'])
+            
+        # 3. BOX PLOT / OUTLIERS (Requires only X)
+        elif chart_type == 'box':
+            # We map the single column to 'y' so the box plot draws vertically
+            fig = px.box(df, y=x_col, template="plotly_dark", color_discrete_sequence=['#6366f1'])
+            
+        # 4. BAR CHART / VALUE COUNTS (Requires only X)
+        elif chart_type == 'bar':
+            counts = df[x_col].value_counts().reset_index()
+            counts.columns = [x_col, 'count']
+            fig = px.bar(counts, x=x_col, y='count', template="plotly_dark", color_discrete_sequence=['#8b5cf6'])
+            
+        # 5. CORRELATION HEATMAP (Automatic)
+        elif chart_type == 'heatmap':
+            numeric_df = df.select_dtypes(include=[np.number])
+            if numeric_df.empty:
+                return jsonify({'error': 'No numeric columns available for heatmap'}), 400
+            corr = numeric_df.corr().fillna(0).round(2)
+            fig = px.imshow(corr, text_auto=True, aspect="auto", template="plotly_dark", color_continuous_scale='Viridis')
+
+        # FIX: Use json.loads(fig.to_json()) to handle NumPy arrays and serializable objects
+        if fig:
+            return json.loads(fig.to_json())
+        else:
+            return jsonify({'error': 'Invalid chart type selected.'}), 400
+
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+# --- 3. TRAINING ROUTE (Untouched) ---
 @app.route('/train', methods=['POST'])
 def train_model():
     try:
@@ -124,7 +184,6 @@ def train_model():
         
         algorithm = config.get('algorithm', 'random_forest_classifier')
         
-        # --- AUTO-DETECT TASK TYPE ---
         if 'regressor' in algorithm or 'regression' in algorithm and algorithm != 'logistic_regression':
             task_type = 'regression'
         elif algorithm == 'svr':
@@ -166,18 +225,14 @@ def train_model():
         else:
             return jsonify({'error': 'Algorithm not supported'}), 400
             
-        # --- TRAIN AND SAVE MODEL ---
         model.fit(X_train, y_train)
         predictions = model.predict(X_test)
         
-        # Save the brain!
         model_path = os.path.join(UPLOAD_FOLDER, 'trained_model.pkl')
         joblib.dump(model, model_path)
-        # ----------------------------
         
         metrics = {}
         
-        # --- FEATURE IMPORTANCE (Moved outside so it runs for both!) ---
         feature_importance = []
         try:
             if hasattr(model, 'feature_importances_'):
@@ -194,22 +249,16 @@ def train_model():
         except Exception as e:
             print(f"Could not calculate feature importance: {e}")
             metrics['feature_importance'] = None
-        # -------------------------------------------------------------
         
         if task_type == 'classification':
             metrics['accuracy'] = float(accuracy_score(y_test, predictions))
-            
-            # Confusion Matrix
             cm = confusion_matrix(y_test, predictions)
             metrics['confusion_matrix'] = cm.tolist() 
-            
             if 'le' in locals():
                 metrics['classes'] = [str(c) for c in le.classes_]
             else:
                 metrics['classes'] = [str(c) for c in pd.Series(y).unique()]
-                
         else:
-            # Safe Edge Case: Regression (Fixed Scikit-Learn 1.4 crash)
             mse = mean_squared_error(y_test, predictions)
             metrics['rmse'] = float(mse ** 0.5) 
             metrics['r2'] = float(r2_score(y_test, predictions))
@@ -220,13 +269,12 @@ def train_model():
         print(traceback.format_exc()) 
         return jsonify({'error': str(e)}), 500
 
-# --- 3. DOWNLOAD ROUTE ---
+# --- 4. DOWNLOAD ROUTE (Untouched) ---
 @app.route('/download', methods=['GET'])
 def download_model():
     try:
         model_path = os.path.join(UPLOAD_FOLDER, 'trained_model.pkl')
         if os.path.exists(model_path):
-            # Send the file to the user's browser as an attachment!
             return send_file(model_path, as_attachment=True, download_name="ml_studio_model.pkl")
         else:
             return jsonify({'error': 'No trained model found'}), 404
@@ -234,4 +282,4 @@ def download_model():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000)  
