@@ -3,13 +3,17 @@ import { Activity, BarChart, Split, Play, CheckCircle2 } from 'lucide-react';
 
 const ALGORITHMS = {
   classification: [
+    { id: 'random_forest', name: 'Random Forest Classifier' },
+    { id: 'xgboost', name: 'Gradient Boosting (Hist)' },
     { id: 'logistic_regression', name: 'Logistic Regression' },
-    { id: 'random_forest_classifier', name: 'Random Forest Classifier' },
+    { id: 'knn', name: 'K-Nearest Neighbors (KNN)' },
     { id: 'svm', name: 'Support Vector Machine (SVM)' }
   ],
   regression: [
+    { id: 'random_forest', name: 'Random Forest Regressor' },
+    { id: 'xgboost', name: 'Gradient Boosting (Hist)' },
     { id: 'linear_regression', name: 'Linear Regression' },
-    { id: 'random_forest_regressor', name: 'Random Forest Regressor' },
+    { id: 'knn', name: 'K-Nearest Neighbors (KNN)' },
     { id: 'svr', name: 'Support Vector Regressor (SVR)' }
   ]
 };
@@ -22,24 +26,36 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
   const [splitRatio, setSplitRatio] = useState(0.8);
   const [algorithm, setAlgorithm] = useState('');
 
-  // Watchdog 1: Auto-detect Task Type based on Target Column text data
+  // Watchdog 1: Smart Auto-detect Task Type
   useEffect(() => {
     if (!targetCol) return;
+    
+    // Check if column is text (object)
     const isText = dataset.dtypes[targetCol] === 'object';
-    if (isText) setTaskType('classification');
+    // Check if column is numeric but has very few unique values (could be a category)
+    // We get this recommendation hint from the backend upload logic
+    const isNumeric = dataset.dtypes[targetCol]?.includes('int') || dataset.dtypes[targetCol]?.includes('float');
+
+    if (isText) {
+      setTaskType('classification');
+    } else if (isNumeric) {
+      // If it's a number, usually strength/price data is Regression
+      // We flip to regression if it's a standard numeric data science task
+      setTaskType('regression');
+    }
   }, [targetCol, dataset]);
 
-  // Watchdog 2: When Task Type changes, reset algorithm to the first available for that type
+  // Watchdog 2: Sync algorithm selection when task type changes
   useEffect(() => {
     setAlgorithm(ALGORITHMS[taskType][0].id);
   }, [taskType]);
 
-  // Watchdog 3: Smart Scaling for Tree-Based Models
+  // Watchdog 3: Smart Scaling for Tree/Boosting Models
   useEffect(() => {
-    if (algorithm.includes('random_forest')) {
+    const isTreeModel = algorithm === 'random_forest' || algorithm === 'xgboost';
+    if (isTreeModel) {
       setScaling('none');
     } else if (scaling === 'none') {
-      // If they switch away from Random Forest, reset scaling back to standard
       setScaling('standard');
     }
   }, [algorithm]);
@@ -51,7 +67,7 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
       filename: dataset.filename,
       target: targetCol,
       task_type: taskType,
-      algorithm: algorithm, // Now sending the specific algorithm to Python!
+      algorithm: algorithm, 
       preprocessing: {
         missing_value_strategy: missingValue,
         scaling: scaling,
@@ -73,7 +89,6 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
           </div>
           
           <div className="space-y-4">
-            {/* Target Select */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">Target Column</label>
               <div className="relative">
@@ -89,14 +104,12 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
                     </option>
                   ))}
                 </select>
-                {/* Arrow Icon */}
                 <div className="absolute right-3 top-3 pointer-events-none">
                   <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-slate-500"></div>
                 </div>
               </div>
             </div>
 
-            {/* Task Type Toggles */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">Task Type</label>
               <div className="grid grid-cols-2 gap-2">
@@ -118,7 +131,6 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
               </div>
             </div>
 
-            {/* NEW: Algorithm Dropdown */}
             <div className="mt-2">
               <label className="block text-xs font-medium text-slate-400 mb-1.5">Select Algorithm</label>
               <div className="relative">
@@ -133,7 +145,6 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
                     </option>
                   ))}
                 </select>
-                {/* Arrow Icon */}
                 <div className="absolute right-3 top-3 pointer-events-none">
                   <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-slate-500"></div>
                 </div>
@@ -151,7 +162,6 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* Missing Values */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">Missing Values</label>
               <select 
@@ -166,21 +176,20 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
               </select>
             </div>
 
-            {/* Smart Scaling */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">Scaling</label>
               <select 
                 value={scaling}
                 onChange={(e) => setScaling(e.target.value)}
-                disabled={algorithm.includes('random_forest')}
+                disabled={algorithm === 'random_forest' || algorithm === 'xgboost'}
                 className={`w-full bg-dark-900/50 border rounded-lg px-3 py-2 text-sm text-slate-200 outline-none transition-all ${
-                  algorithm.includes('random_forest') 
+                  (algorithm === 'random_forest' || algorithm === 'xgboost')
                   ? 'opacity-50 cursor-not-allowed border-slate-700' 
                   : 'border-slate-700 focus:ring-1 focus:ring-brand-cyan'
                 }`}
               >
-                {algorithm.includes('random_forest') ? (
-                  <option value="none" className="bg-dark-800 text-slate-200">None (Tree Model)</option>
+                {(algorithm === 'random_forest' || algorithm === 'xgboost') ? (
+                  <option value="none" className="bg-dark-800 text-slate-200">None (Tree/Boost)</option>
                 ) : (
                   <>
                     <option value="standard" className="bg-dark-800 text-slate-200">Standard (Z)</option>
@@ -192,7 +201,6 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
             </div>
           </div>
 
-          {/* Split Slider */}
           <div className="pt-2">
             <div className="flex justify-between text-xs mb-2">
               <span className="text-slate-400 flex items-center gap-1.5"><Split className="w-3 h-3" /> Train/Test Split</span>
@@ -211,7 +219,6 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
         </div>
       </div>
 
-      {/* Footer Action */}
       <div className="mt-8 pt-6 border-t border-white/5 flex justify-end">
         <button 
           onClick={handleStart}

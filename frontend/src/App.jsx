@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Table as TableIcon, Activity, Layers, Cpu, Database, CheckCircle, AlertCircle, BarChart2, BrainCircuit, LineChart, AlertTriangle, Wand2 } from 'lucide-react';
+import { LayoutDashboard, Table as TableIcon, Activity, Layers, Cpu, Database, CheckCircle, AlertCircle, BarChart2, BrainCircuit, LineChart, AlertTriangle, Wand2, Trophy, Star, History, Download } from 'lucide-react';
 import Plot from 'react-plotly.js';
 import UploadDataset from './components/UploadDataset';
 import ExperimentConfig from './components/ExperimentConfig';
@@ -75,17 +75,18 @@ const Navbar = ({ hasDataset, workspaceMode, onReset, onSwitchMode }) => {
   return (
     <nav className="relative z-50 border-b border-white/5 bg-dark-900/50 backdrop-blur-md shrink-0">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-indigo to-brand-purple flex items-center justify-center shadow-lg shadow-brand-indigo/20">
-              {workspaceMode === 'eda' ? <LineChart className="w-5 h-5 text-white" /> : <Activity className="w-5 h-5 text-white" />}
-            </div>
-            <div className="text-left">
-               <span className="block text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-indigo via-brand-purple to-brand-cyan">
-                 {workspaceMode === 'eda' ? 'EDA Dashboard' : 'ML Studio'}
-               </span>
-            </div>
-        </div>
-        {hasDataset && (
+       <div className="flex items-center gap-3">
+    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-indigo to-brand-purple flex items-center justify-center shadow-lg shadow-brand-indigo/20">
+      {/* RESTORED: This is the original pulse icon */}
+      <Activity className="w-5 h-5 text-white" />
+    </div>
+    <div className="text-left">
+       <span className="block text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-indigo via-brand-purple to-brand-cyan">
+         ML Studio
+       </span>
+    </div>
+</div>
+          {hasDataset && (
            <div className="flex items-center gap-3">
               {workspaceMode === 'ml' ? (
                  <button onClick={() => onSwitchMode('eda')} className="text-xs font-bold text-brand-cyan hover:text-white transition px-4 py-2 bg-brand-cyan/10 hover:bg-brand-cyan/20 rounded-lg border border-brand-cyan/20 flex items-center gap-2">
@@ -115,8 +116,9 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]); // Storage for Hall of Fame
 
-  // --- NEW: EDA DASHBOARD STATES ---
+  // --- EDA DASHBOARD STATES ---
   const [edaChartType, setEdaChartType] = useState('scatter');
   const [edaX, setEdaX] = useState('');
   const [edaY, setEdaY] = useState('');
@@ -165,7 +167,7 @@ function App() {
     }
   }, [edaChartType, edaX, edaY, dataset]);
 
-  // --- THE FETCH FUNCTION (Talking to Python) ---
+  // --- THE FETCH FUNCTION ---
   const generatePlot = async () => {
     if (edaWarning) return;
     setEdaIsDrawing(true);
@@ -194,8 +196,25 @@ function App() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Training failed");
+      
       setResults(data);
+
+      // --- LOGIC: Add result to Hall of Fame ---
+      const newRun = {
+        algo: data.metrics.algorithm_used.toUpperCase().replace(/_/g, ' '),
+        r2: data.metrics.r2,
+        accuracy: data.metrics.accuracy,
+        mae: data.metrics.mae,
+        rmse: data.metrics.rmse,
+        time: new Date().toLocaleTimeString()
+      };
+      setLeaderboard(prev => [...prev, newRun].sort((a, b) => (b.r2 || b.accuracy) - (a.r2 || a.accuracy)));
+
     } catch (err) { setError(err.message); } finally { setIsLoading(false); }
+  };
+
+  const handleDownloadModel = () => {
+    window.location.href = 'http://127.0.0.1:5000/download';
   };
 
   return (
@@ -204,7 +223,7 @@ function App() {
       <Navbar 
          hasDataset={!!dataset} 
          workspaceMode={workspaceMode}
-         onReset={() => { setDataset(null); setResults(null); setActiveTab('config'); setEdaPlotData(null); }} 
+        onReset={() => { setDataset(null); setResults(null); setActiveTab('config'); setEdaPlotData(null); setLeaderboard([]); }} 
          onSwitchMode={(mode) => { setWorkspaceMode(mode); setActiveTab('config'); }}
       />
 
@@ -225,14 +244,12 @@ function App() {
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center p-6 overflow-hidden w-full">
         <AnimatePresence mode="wait">
           {!dataset ? (
-            /* =========================================
-               LANDING PAGE
-               ========================================= */
+            /* LANDING PAGE */
             <motion.div key="landing" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full max-w-6xl flex flex-col md:flex-row items-center gap-16">
               <div className="flex-1 space-y-8 text-center md:text-left z-20">
                 <div className="space-y-2">
                   <h1 className="text-6xl md:text-8xl font-bold tracking-tighter text-white leading-[1] drop-shadow-2xl">ML <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-indigo to-brand-purple">Studio</span></h1>
-                  <div className="text-xl md:text-2xl text-slate-400 h-8"><TypewriterText text="> System Online. Awaiting Data..." /></div>
+                  <div className="text-xl md:text-2xl text-slate-400 h-8 font-mono"><TypewriterText text="> System Online. Awaiting Data..." /></div>
                 </div>
                 <p className="text-lg text-slate-500 max-w-xl mx-auto md:mx-0 leading-relaxed">The comprehensive platform for machine learning development. Import datasets, visually profile distributions, and train professional models.</p>
                 <div className="flex flex-wrap justify-center md:justify-start gap-4">
@@ -260,9 +277,7 @@ function App() {
             </motion.div>
 
           ) : workspaceMode === 'eda' ? (
-            /* =========================================
-               EDA DASHBOARD WORKSPACE (Tableau Style)
-               ========================================= */
+            /* EDA DASHBOARD WORKSPACE */
             <motion.div key="eda-workspace" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-7xl h-full flex flex-col">
               <div className="flex items-center justify-between px-6 py-4 rounded-t-2xl bg-dark-800/80 backdrop-blur-xl border border-white/10 border-b-0">
                  <h2 className="text-xl font-bold text-white flex items-center gap-3">
@@ -274,7 +289,6 @@ function App() {
 
               <div className="flex-1 bg-dark-800/50 backdrop-blur-md border border-white/10 rounded-b-2xl p-6 shadow-2xl flex gap-6 overflow-hidden">
                  
-                 {/* LEFT SIDEBAR: Controls */}
                  <div className="w-72 shrink-0 flex flex-col gap-6">
                     <div className="space-y-4">
                        <div>
@@ -288,11 +302,9 @@ function App() {
                          </select>
                        </div>
 
-                       {/* DYNAMIC UI: Heatmap needs NO dropdowns. Everything else needs at least X. */}
                        {edaChartType !== 'heatmap' && (
                          <div>
                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">
-                              {/* SMART LABEL: If it's a Box or Hist, it only needs 1 column, so call it "Target Feature" */}
                               {edaChartType === 'histogram' || edaChartType === 'box' || edaChartType === 'bar' ? 'Target Feature' : 'X-Axis'}
                            </label>
                            <select value={edaX} onChange={(e) => {setEdaX(e.target.value); setEdaPlotData(null);}} className="w-full bg-dark-900 border border-white/10 text-white text-sm rounded-lg px-4 py-2.5 outline-none focus:border-brand-cyan transition-colors">
@@ -301,7 +313,6 @@ function App() {
                          </div>
                        )}
 
-                       {/* DYNAMIC UI: ONLY Scatter Plot gets the Y-Axis dropdown! */}
                        {edaChartType === 'scatter' && (
                          <div>
                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Y-Axis</label>
@@ -322,7 +333,6 @@ function App() {
                     </button>
                  </div>
 
-                 {/* RIGHT CANVAS: Plotly Engine */}
                  <div className="flex-1 bg-dark-900/50 border border-white/5 rounded-xl relative overflow-hidden flex items-center justify-center">
                     {error && (
                       <div className="absolute top-4 left-4 right-4 p-4 bg-red-500/10 border border-red-500/50 rounded-xl flex items-center gap-3 text-red-200 z-50">
@@ -373,9 +383,7 @@ function App() {
             </motion.div>
 
           ) : (
-            /* =========================================
-               ML STUDIO WORKSPACE (Data Health is here!)
-               ========================================= */
+            /* ML STUDIO WORKSPACE */
             <motion.div key="ml-workspace" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-6xl h-full flex flex-col">
               <div className="flex items-center justify-between px-6 py-4 rounded-t-2xl bg-dark-800/80 backdrop-blur-xl border border-white/10 border-b-0">
                  <div className="flex items-center gap-6">
@@ -387,6 +395,7 @@ function App() {
                    {!results && (
                       <div className="flex bg-dark-900/50 p-1 rounded-lg border border-white/5">
                         <button onClick={() => setActiveTab('config')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'config' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><LayoutDashboard className="w-4 h-4" /> Configure</button>
+                        <button onClick={() => setActiveTab('leaderboard')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'leaderboard' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><Trophy className="w-4 h-4" /> Leaderboard</button>
                         <button onClick={() => setActiveTab('health')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'health' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><Activity className="w-4 h-4" /> Data Health</button>
                         <button onClick={() => setActiveTab('data')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'data' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><TableIcon className="w-4 h-4" /> Data Preview</button>
                       </div>
@@ -443,11 +452,19 @@ function App() {
                           </div>
                        ) : results.metrics.rmse !== undefined ? (
                           <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col justify-center items-center text-center">
-                             <h3 className="text-xs font-bold text-brand-purple mb-6 uppercase tracking-wider flex items-center gap-2"><Activity className="w-4 h-4" /> Regression Error</h3>
-                             <div className="flex flex-col items-center justify-center flex-1">
-                                 <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Root Mean Square Error (RMSE)</div>
-                                 <div className="text-5xl font-mono font-bold text-red-400 mt-2">{results.metrics.rmse.toFixed(2)}</div>
-                                 <div className="text-[11px] text-slate-500 mt-4 px-4">This means your AI's predictions are off by an average of ± {results.metrics.rmse.toFixed(2)} units.</div>
+                             <h3 className="text-xs font-bold text-brand-purple mb-6 uppercase tracking-wider flex items-center gap-2"><Activity className="w-4 h-4" /> Regression Metrics</h3>
+                             <div className="grid grid-cols-2 gap-4 w-full">
+                                <div className="p-4 bg-dark-800/50 rounded-lg border border-white/5">
+                                   <div className="text-[10px] text-slate-500 font-bold uppercase">RMSE</div>
+                                   <div className="text-2xl font-mono font-bold text-red-400 mt-1">{results.metrics.rmse.toFixed(2)}</div>
+                                </div>
+                                <div className="p-4 bg-dark-800/50 rounded-lg border border-white/5">
+                                   <div className="text-[10px] text-slate-500 font-bold uppercase">MAE</div>
+                                   <div className="text-2xl font-mono font-bold text-brand-cyan mt-1">{results.metrics.mae.toFixed(2)}</div>
+                                </div>
+                             </div>
+                             <div className="text-[11px] text-slate-500 mt-4 px-4 leading-relaxed italic">
+                                Average prediction error is ± {results.metrics.mae.toFixed(2)} units.
                              </div>
                           </div>
                        ) : null}
@@ -474,11 +491,20 @@ function App() {
                        )}
 
                        <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col justify-center">
-                           <h3 className="text-xs font-bold text-brand-cyan mb-6 uppercase tracking-wider flex items-center gap-2"><Cpu className="w-4 h-4" /> Export & Deploy</h3>
-                           <a href="http://127.0.0.1:5000/download" download className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-brand-cyan/20 to-brand-indigo/20 hover:from-brand-cyan/30 hover:to-brand-indigo/30 text-white border border-brand-cyan/30 rounded-xl text-sm font-bold transition-all shadow-[0_0_15px_rgba(34,211,238,0.1)] hover:-translate-y-1">
-                              <Database className="w-4 h-4 text-brand-cyan" /> Download (.pkl)
-                           </a>
-                           <p className="text-[10px] text-slate-500 mt-3 text-center">Deploy these compiled weights into any Python web server.</p>
+                           <h3 className="text-xs font-bold text-brand-cyan mb-6 uppercase tracking-wider flex items-center gap-2"><Cpu className="w-4 h-4" /> Hall of Fame</h3>
+                           {/* FIX: Now clears results so you jump directly to the Leaderboard tab */}
+                           <button onClick={() => { setResults(null); setActiveTab('leaderboard'); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-brand-purple/20 to-brand-indigo/20 hover:from-brand-purple/30 hover:to-brand-indigo/30 text-white border border-brand-purple/30 rounded-xl text-sm font-bold transition-all hover:-translate-y-1">
+                              <Trophy className="w-4 h-4 text-yellow-500" /> View Leaderboard
+                           </button>
+                           <p className="text-[10px] text-slate-500 mt-3 text-center">See how this run ranks against previous models.</p>
+                           <div className="w-full h-[1px] bg-white/10 my-4"></div>
+                           <button
+                             onClick={handleDownloadModel}
+                             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white/5 border border-white/10 hover:bg-white/10 text-white rounded-xl text-sm font-bold transition-all"
+                           >
+                             <Download className="w-4 h-4 text-brand-cyan" />
+                             Download .pkl Model
+                           </button>
                            <div className="w-full h-[1px] bg-white/10 my-4"></div>
                            <button onClick={() => setResults(null)} className="w-full px-4 py-2 text-slate-400 hover:text-white border border-white/10 hover:bg-white/5 rounded-xl text-xs transition-all font-semibold">
                               ← Retrain Model
@@ -487,13 +513,46 @@ function App() {
                      </div>
                   </div>
 
+                ) : activeTab === 'leaderboard' ? (
+                  /* LEADERBOARD VIEW */
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                       <h3 className="text-xl font-bold flex items-center gap-3 text-white"><Trophy className="w-6 h-6 text-yellow-500" /> Session Hall of Fame</h3>
+                       <div className="text-xs font-mono text-slate-500 uppercase tracking-widest">Ranked by score</div>
+                    </div>
+
+                    {leaderboard.length === 0 ? (
+                      <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-2xl">
+                         <History className="w-12 h-12 text-slate-700 mb-4" />
+                         <p className="text-slate-500 font-mono text-sm uppercase">No models trained yet in this session.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {leaderboard.map((run, idx) => (
+                          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: idx * 0.1 }} key={idx} className={`flex items-center gap-4 p-4 rounded-xl border ${idx === 0 ? 'bg-brand-indigo/10 border-brand-indigo/50' : 'bg-dark-900/40 border-white/5'}`}>
+                             <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold font-mono ${idx === 0 ? 'bg-yellow-500 text-dark-900 shadow-[0_0_15px_rgba(234,179,8,0.5)]' : 'bg-dark-800 text-slate-400'}`}>
+                                {idx === 0 ? <Star className="w-5 h-5" /> : idx + 1}
+                             </div>
+                             <div className="flex-1">
+                                <div className="text-sm font-bold text-white uppercase tracking-tight">{run.algo}</div>
+                                <div className="text-[10px] text-slate-500 font-mono uppercase">{run.time}</div>
+                             </div>
+                             <div className="text-right">
+                                <div className="text-lg font-mono font-bold text-brand-cyan">
+                                   {run.r2 ? `${(run.r2 * 100).toFixed(1)}%` : `${(run.accuracy * 100).toFixed(1)}%`}
+                                </div>
+                                <div className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Metric Score</div>
+                             </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                 ) : activeTab === 'config' ? (
                   <ExperimentConfig dataset={dataset} onStartTraining={trainModel} />
                   
                 ) : activeTab === 'health' ? (
-                  /* =========================================
-                     DATA HEALTH SCREEN (Moved to ML Studio)
-                     ========================================= */
                   <div className="flex flex-col h-full w-full">
                     <div className="flex-1 min-h-0 overflow-y-auto w-full pr-2">
                       <div className="space-y-6">

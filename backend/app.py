@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import os
 import joblib 
-import json
 
 # --- Plotly Charting Library ---
 import plotly.express as px
@@ -13,12 +12,13 @@ import plotly.express as px
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
-from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, confusion_matrix
+from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, confusion_matrix, mean_absolute_error
 
 # Algorithms
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.svm import SVC, SVR
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 
 app = Flask(__name__)
 CORS(app)
@@ -27,7 +27,9 @@ UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-# --- 1. UPLOAD ROUTE (Untouched) ---
+# ------------------------------------------------------------------
+# --- 1. UPLOAD ROUTE (Complete with Data Health Logic) ---
+# ------------------------------------------------------------------
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -49,7 +51,6 @@ def upload_file():
             
             missing_counts = df.isnull().sum()
             max_missing = int(missing_counts.max())
-            
             missing_percentage = (max_missing / rows) * 100 if rows > 0 else 0
             
             if missing_percentage == 0 or missing_percentage < 5:
@@ -57,15 +58,7 @@ def upload_file():
             else:
                 worst_column = missing_counts.idxmax()
                 col_type = df[worst_column].dtype
-                
-                if col_type == 'object':
-                    recommendation = "mode" 
-                else:
-                    skewness = df[worst_column].skew()
-                    if abs(skewness) > 1:
-                        recommendation = "median" 
-                    else:
-                        recommendation = "mean"   
+                recommendation = "mode" if col_type == 'object' else ("median" if abs(df[worst_column].skew()) > 1 else "mean")
             
             return jsonify({
                 'message': 'File uploaded successfully',
@@ -82,204 +75,132 @@ def upload_file():
             return jsonify({'error': str(e)}), 500
 
 
-# --- 2. PLOTLY CHARTING ENGINE (With Serialization Fix) ---
+# ------------------------------------------------------------------
+# --- 2. PLOTLY CHARTING ENGINE ---
+# ------------------------------------------------------------------
 @app.route('/plot', methods=['POST'])
 def generate_plot():
     try:
         data = request.json
-        chart_type = data.get('type')
-        x_col = data.get('x')
-        y_col = data.get('y')
-
-        # Load the dataset from the uploads folder
-        filepath = os.path.join(UPLOAD_FOLDER, 'train.csv')
-        if not os.path.exists(filepath):
-            return jsonify({'error': 'Dataset not found. Please upload again.'}), 400
-            
-        df = pd.read_csv(filepath)
+        chart_type, x_col, y_col = data.get('type'), data.get('x'), data.get('y')
+        df = pd.read_csv(os.path.join(UPLOAD_FOLDER, 'train.csv'))
         fig = None
 
-        # 1. SCATTER PLOT (Requires X and Y)
         if chart_type == 'scatter':
-            if not x_col or not y_col:
-                return jsonify({'error': 'Scatter plots require both X and Y columns.'}), 400
             fig = px.scatter(df, x=x_col, y=y_col, template="plotly_dark", color_discrete_sequence=['#22d3ee'])
-            
-        # 2. HISTOGRAM / DISTRIBUTION (Requires only X)
         elif chart_type == 'histogram':
             fig = px.histogram(df, x=x_col, template="plotly_dark", color_discrete_sequence=['#8b5cf6'])
-            
-        # 3. BOX PLOT / OUTLIERS (Requires only X)
         elif chart_type == 'box':
-            # We map the single column to 'y' so the box plot draws vertically
             fig = px.box(df, y=x_col, template="plotly_dark", color_discrete_sequence=['#6366f1'])
-            
-        # 4. BAR CHART / VALUE COUNTS (Requires only X)
         elif chart_type == 'bar':
             counts = df[x_col].value_counts().reset_index()
             counts.columns = [x_col, 'count']
             fig = px.bar(counts, x=x_col, y='count', template="plotly_dark", color_discrete_sequence=['#8b5cf6'])
-            
-        # 5. CORRELATION HEATMAP (Automatic)
         elif chart_type == 'heatmap':
             numeric_df = df.select_dtypes(include=[np.number])
-            if numeric_df.empty:
-                return jsonify({'error': 'No numeric columns available for heatmap'}), 400
             corr = numeric_df.corr().fillna(0).round(2)
             fig = px.imshow(corr, text_auto=True, aspect="auto", template="plotly_dark", color_continuous_scale='Viridis')
 
-        # FIX: Use json.loads(fig.to_json()) to handle NumPy arrays and serializable objects
         if fig:
-            return json.loads(fig.to_json())
-        else:
-            return jsonify({'error': 'Invalid chart type selected.'}), 400
-
+            return app.response_class(fig.to_json(), mimetype='application/json')
+        return jsonify({'error': 'Invalid chart type'}), 400
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
-# --- 3. TRAINING ROUTE (Untouched) ---
+# ------------------------------------------------------------------
+# --- 3. THE MODEL ARENA ---
+# ------------------------------------------------------------------
 @app.route('/train', methods=['POST'])
 def train_model():
     try:
         config = request.json
         filepath = os.path.join(UPLOAD_FOLDER, 'train.csv')
-        
-        if not os.path.exists(filepath):
-            return jsonify({'error': 'Dataset not found. Please upload first.'}), 400
-            
         df = pd.read_csv(filepath)
-        
         target = config.get('target')
-        if target not in df.columns:
-            return jsonify({'error': f'Target column "{target}" not found'}), 400
 
-        missing_strategy = config.get('preprocessing', {}).get('missing_value_strategy', 'drop')
-        
-        if missing_strategy == 'drop':
+        strategy = config.get('preprocessing', {}).get('missing_value_strategy', 'drop')
+        if strategy == 'drop':
             df = df.dropna()
         else:
-            sklearn_strategy = 'most_frequent' if missing_strategy == 'mode' else missing_strategy
-            
             num_cols = df.select_dtypes(include=['number']).columns
-            cat_cols = df.select_dtypes(include=['object']).columns
+            df[num_cols] = SimpleImputer(strategy='mean' if strategy=='mean' else 'median').fit_transform(df[num_cols])
 
-            if sklearn_strategy in ['mean', 'median']:
-                if len(num_cols) > 0:
-                    num_imputer = SimpleImputer(strategy=sklearn_strategy)
-                    df[num_cols] = num_imputer.fit_transform(df[num_cols])
-                if len(cat_cols) > 0:
-                    cat_imputer = SimpleImputer(strategy='most_frequent') 
-                    df[cat_cols] = cat_imputer.fit_transform(df[cat_cols])
-            elif sklearn_strategy == 'most_frequent':
-                imputer = SimpleImputer(strategy='most_frequent')
-                df = pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
-
-        X = df.drop(columns=[target])
+        X = df.drop(columns=[target]).select_dtypes(include=['number'])
         y = df[target]
-        
-        X = X.select_dtypes(include=['number'])
-        
-        algorithm = config.get('algorithm', 'random_forest_classifier')
-        
-        if 'regressor' in algorithm or 'regression' in algorithm and algorithm != 'logistic_regression':
-            task_type = 'regression'
-        elif algorithm == 'svr':
-            task_type = 'regression'
-        else:
-            task_type = 'classification'
-            
-        if task_type == 'classification' and y.dtype == 'object':
+
+        is_regression = pd.api.types.is_numeric_dtype(y) and y.nunique() > 15
+        if not is_regression and y.dtype == 'object':
             le = LabelEncoder()
             y = le.fit_transform(y)
 
-        split_ratio = config.get('preprocessing', {}).get('test_size', 0.2)
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=split_ratio, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
         scaling = config.get('preprocessing', {}).get('scaling', 'none')
-        if scaling == 'standard':
-            scaler = StandardScaler()
-            X_train = scaler.fit_transform(X_train)
-            X_test = scaler.transform(X_test)
-        elif scaling == 'minmax':
-            scaler = MinMaxScaler()
+        if scaling != 'none':
+            scaler = StandardScaler() if scaling == 'standard' else MinMaxScaler()
             X_train = scaler.fit_transform(X_train)
             X_test = scaler.transform(X_test)
 
-        model = None
+        algorithm = config.get('algorithm', 'random_forest')
         
-        if algorithm == 'logistic_regression':
-            model = LogisticRegression(max_iter=1000)
-        elif algorithm == 'random_forest_classifier':
-            model = RandomForestClassifier(n_estimators=50)
-        elif algorithm == 'svm':
-            model = SVC()
-        elif algorithm == 'linear_regression':
-            model = LinearRegression()
-        elif algorithm == 'random_forest_regressor':
-            model = RandomForestRegressor(n_estimators=50)
-        elif algorithm == 'svr':
-            model = SVR()
+        if is_regression:
+            models = {
+                'linear_regression': LinearRegression(),
+                'random_forest': RandomForestRegressor(n_estimators=100),
+                'xgboost': HistGradientBoostingRegressor(),
+                'knn': KNeighborsRegressor(n_neighbors=5),
+                'svr': SVR()
+            }
         else:
-            return jsonify({'error': 'Algorithm not supported'}), 400
-            
+            models = {
+                'logistic_regression': LogisticRegression(max_iter=1000),
+                'random_forest': RandomForestClassifier(n_estimators=100),
+                'xgboost': HistGradientBoostingClassifier(),
+                'knn': KNeighborsClassifier(n_neighbors=5),
+                'svm': SVC(probability=True)
+            }
+
+        model = models.get(algorithm, models['random_forest'])
         model.fit(X_train, y_train)
+        
+        joblib.dump(model, os.path.join(UPLOAD_FOLDER, 'trained_model.pkl'))
+        
         predictions = model.predict(X_test)
+        metrics = {'algorithm_used': algorithm}
         
-        model_path = os.path.join(UPLOAD_FOLDER, 'trained_model.pkl')
-        joblib.dump(model, model_path)
-        
-        metrics = {}
-        
-        feature_importance = []
         try:
             if hasattr(model, 'feature_importances_'):
-                importances = model.feature_importances_
-                for i, col in enumerate(X.columns):
-                    feature_importance.append({"feature": col, "importance": float(importances[i])})
+                imp = [{"feature": col, "importance": float(v)} for col, v in zip(X.columns, model.feature_importances_)]
+                metrics['feature_importance'] = sorted(imp, key=lambda x: x['importance'], reverse=True)
             elif hasattr(model, 'coef_'):
-                importances = model.coef_[0] if len(model.coef_.shape) > 1 else model.coef_
-                for i, col in enumerate(X.columns):
-                    feature_importance.append({"feature": col, "importance": float(abs(importances[i]))})
-            
-            feature_importance = sorted(feature_importance, key=lambda x: x['importance'], reverse=True)
-            metrics['feature_importance'] = feature_importance
-        except Exception as e:
-            print(f"Could not calculate feature importance: {e}")
+                coefs = model.coef_[0] if len(model.coef_.shape) > 1 else model.coef_
+                imp = [{"feature": col, "importance": float(abs(v))} for col, v in zip(X.columns, coefs)]
+                metrics['feature_importance'] = sorted(imp, key=lambda x: x['importance'], reverse=True)
+        except:
             metrics['feature_importance'] = None
         
-        if task_type == 'classification':
+        if not is_regression:
             metrics['accuracy'] = float(accuracy_score(y_test, predictions))
-            cm = confusion_matrix(y_test, predictions)
-            metrics['confusion_matrix'] = cm.tolist() 
-            if 'le' in locals():
-                metrics['classes'] = [str(c) for c in le.classes_]
-            else:
-                metrics['classes'] = [str(c) for c in pd.Series(y).unique()]
+            metrics['confusion_matrix'] = confusion_matrix(y_test, predictions).tolist()
+            metrics['classes'] = [str(c) for c in (le.classes_ if 'le' in locals() else np.unique(y))]
         else:
-            mse = mean_squared_error(y_test, predictions)
-            metrics['rmse'] = float(mse ** 0.5) 
             metrics['r2'] = float(r2_score(y_test, predictions))
+            metrics['rmse'] = float(mean_squared_error(y_test, predictions) ** 0.5)
+            metrics['mae'] = float(mean_absolute_error(y_test, predictions))
             
         return jsonify({'status': 'success', 'metrics': metrics})
     except Exception as e:
-        import traceback
-        print(traceback.format_exc()) 
         return jsonify({'error': str(e)}), 500
 
-# --- 4. DOWNLOAD ROUTE (Untouched) ---
+
+# ------------------------------------------------------------------
+# --- 5. UTILITY ROUTES ---
+# ------------------------------------------------------------------
 @app.route('/download', methods=['GET'])
 def download_model():
-    try:
-        model_path = os.path.join(UPLOAD_FOLDER, 'trained_model.pkl')
-        if os.path.exists(model_path):
-            return send_file(model_path, as_attachment=True, download_name="ml_studio_model.pkl")
-        else:
-            return jsonify({'error': 'No trained model found'}), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    path = os.path.join(UPLOAD_FOLDER, 'trained_model.pkl')
+    return send_file(path, as_attachment=True) if os.path.exists(path) else (jsonify({'error': 'No model'}), 404)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)  
+    app.run(debug=True, port=5000)

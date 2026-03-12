@@ -1,5 +1,8 @@
-uvicorn
-scikit-learn
+flask
+flask-cors
 pandas
 numpy
-flask
+scikit-learn
+joblib
+plotly
+xgboostom
