@@ -44,3 +44,5 @@ frontend/build/
 # =========================
 backend/uploads/
 backend/datasets/
+
+.env

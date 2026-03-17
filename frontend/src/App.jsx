@@ -117,6 +117,8 @@ function App() {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]); // Storage for Hall of Fame
+  const [aiAnalysis, setAiAnalysis] = useState(null); // Gemini AI analysis
+  const [isAnalyzing, setIsAnalyzing] = useState(false); // AI analysis loading state
 
   // --- EDA DASHBOARD STATES ---
   const [edaChartType, setEdaChartType] = useState('scatter');
@@ -213,6 +215,32 @@ function App() {
     } catch (err) { setError(err.message); } finally { setIsLoading(false); }
   };
 
+  const analyzeResults = async (targetVariable = "Target") => {
+    if (!results || !dataset) return;
+    setIsAnalyzing(true);
+    setError(null);
+    try {
+      const response = await fetch('http://127.0.0.1:5000/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metrics: results.metrics,
+          context: {
+            filename: dataset.filename,
+            target: targetVariable
+          }
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Analysis failed");
+      setAiAnalysis(data.analysis);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleDownloadModel = () => {
     window.location.href = 'http://127.0.0.1:5000/download';
   };
@@ -223,7 +251,7 @@ function App() {
       <Navbar 
          hasDataset={!!dataset} 
          workspaceMode={workspaceMode}
-        onReset={() => { setDataset(null); setResults(null); setActiveTab('config'); setEdaPlotData(null); setLeaderboard([]); }} 
+        onReset={() => { setDataset(null); setResults(null); setActiveTab('config'); setEdaPlotData(null); setLeaderboard([]); setAiAnalysis(null); }} 
          onSwitchMode={(mode) => { setWorkspaceMode(mode); setActiveTab('config'); }}
       />
 
@@ -421,7 +449,7 @@ function App() {
                         </div>
                      </div>
 
-                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full flex-1 min-h-0 overflow-y-auto">
+                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full mb-6">
                        {results.metrics.confusion_matrix ? (
                           <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col">
                              <h3 className="text-xs font-bold text-brand-purple mb-6 uppercase tracking-wider flex items-center gap-2"><Activity className="w-4 h-4" /> Confusion Matrix</h3>
@@ -511,6 +539,36 @@ function App() {
                            </button>
                        </div>
                      </div>
+
+                      <div className="w-full bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col overflow-hidden min-h-[220px]">
+                         <h3 className="text-xs font-bold text-brand-purple mb-4 uppercase tracking-wider flex items-center gap-2 shrink-0"><BrainCircuit className="w-4 h-4" /> AI Analysis (Gemini)</h3>
+                         {aiAnalysis ? (
+                           <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+                             <div className="text-sm text-slate-300 leading-relaxed bg-dark-800/30 p-4 rounded-lg border border-white/5">
+                               {aiAnalysis}
+                             </div>
+                             <button 
+                               onClick={() => setAiAnalysis(null)}
+                               className="w-full text-xs text-slate-400 hover:text-white border border-white/10 hover:bg-white/5 px-3 py-2 rounded-lg transition-all font-semibold"
+                             >
+                               Clear Analysis
+                             </button>
+                           </div>
+                         ) : (
+                           <div className="flex-1 flex flex-col items-center justify-center text-center">
+                             <BrainCircuit className="w-10 h-10 text-slate-700 mb-3 opacity-50" />
+                             <p className="text-xs text-slate-500 mb-4">Click below to get an expert AI analysis of your model</p>
+                             <button 
+                               onClick={() => analyzeResults(dataset.column_names[dataset.column_names.length - 1] || "Target")}
+                               disabled={isAnalyzing}
+                               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-brand-purple/20 to-brand-indigo/20 hover:from-brand-purple/30 hover:to-brand-indigo/30 text-white border border-brand-purple/30 rounded-xl text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                             >
+                               {isAnalyzing ? <Cpu className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
+                               {isAnalyzing ? 'Analyzing...' : 'Run AI Analysis'}
+                             </button>
+                           </div>
+                         )}
+                      </div>
                   </div>
 
                 ) : activeTab === 'leaderboard' ? (
