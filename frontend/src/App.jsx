@@ -200,6 +200,7 @@ function App() {
       if (!response.ok) throw new Error(data.error || "Training failed");
       
       setResults(data);
+      setActiveTab('results');
 
       // --- LOGIC: Add result to Hall of Fame ---
       const newRun = {
@@ -420,19 +421,20 @@ function App() {
                      <div><div className="text-sm font-bold text-white">{dataset.filename}</div><div className="text-xs text-slate-400 font-mono">{dataset.rows} Rows • {dataset.columns} Cols</div></div>
                    </div>
                    <div className="h-8 w-[1px] bg-white/10 mx-2" />
-                   {!results && (
-                      <div className="flex bg-dark-900/50 p-1 rounded-lg border border-white/5">
+                   <div className="flex bg-dark-900/50 p-1 rounded-lg border border-white/5">
+                        {results && (
+                          <button onClick={() => setActiveTab('results')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'results' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><CheckCircle className="w-4 h-4" /> View Results</button>
+                        )}
                         <button onClick={() => setActiveTab('config')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'config' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><LayoutDashboard className="w-4 h-4" /> Configure</button>
                         <button onClick={() => setActiveTab('leaderboard')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'leaderboard' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><Trophy className="w-4 h-4" /> Leaderboard</button>
                         <button onClick={() => setActiveTab('health')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'health' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><Activity className="w-4 h-4" /> Data Health</button>
                         <button onClick={() => setActiveTab('data')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-2 ${activeTab === 'data' ? 'bg-brand-indigo text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><TableIcon className="w-4 h-4" /> Data Preview</button>
-                      </div>
-                   )}
+                   </div>
                  </div>
               </div>
 
               <div className="flex-1 bg-dark-800/50 backdrop-blur-md border border-white/10 rounded-b-2xl p-6 shadow-2xl overflow-y-auto relative z-20 flex flex-col">
-                {results ? (
+                {results && activeTab === 'results' ? (
                   /* --- ML RESULTS VIEW --- */
                   <div className="flex flex-col w-full h-full max-w-6xl mx-auto py-2">
                      <div className="flex flex-col sm:flex-row items-center justify-between bg-dark-900/60 p-5 rounded-2xl border border-white/10 shadow-lg mb-6 w-full shrink-0">
@@ -521,7 +523,7 @@ function App() {
                        <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col justify-center">
                            <h3 className="text-xs font-bold text-brand-cyan mb-6 uppercase tracking-wider flex items-center gap-2"><Cpu className="w-4 h-4" /> Hall of Fame</h3>
                            {/* FIX: Now clears results so you jump directly to the Leaderboard tab */}
-                           <button onClick={() => { setResults(null); setActiveTab('leaderboard'); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-brand-purple/20 to-brand-indigo/20 hover:from-brand-purple/30 hover:to-brand-indigo/30 text-white border border-brand-purple/30 rounded-xl text-sm font-bold transition-all hover:-translate-y-1">
+                          <button onClick={() => setActiveTab('leaderboard')} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-brand-purple/20 to-brand-indigo/20 hover:from-brand-purple/30 hover:to-brand-indigo/30 text-white border border-brand-purple/30 rounded-xl text-sm font-bold transition-all hover:-translate-y-1">
                               <Trophy className="w-4 h-4 text-yellow-500" /> View Leaderboard
                            </button>
                            <p className="text-[10px] text-slate-500 mt-3 text-center">See how this run ranks against previous models.</p>
@@ -544,9 +546,27 @@ function App() {
                          <h3 className="text-xs font-bold text-brand-purple mb-4 uppercase tracking-wider flex items-center gap-2 shrink-0"><BrainCircuit className="w-4 h-4" /> AI Analysis (Gemini)</h3>
                          {aiAnalysis ? (
                            <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-                             <div className="text-sm text-slate-300 leading-relaxed bg-dark-800/30 p-4 rounded-lg border border-white/5">
-                               {aiAnalysis}
-                             </div>
+                             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="text-slate-300 font-sans leading-relaxed text-sm">
+                               {aiAnalysis.split(' ').map((word, i) => {
+                                 // Clean the word for comparison (remove commas, periods, etc.)
+                                 const cleanWord = word.toLowerCase().replace(/[.,()]/g, '');
+                                 
+                                 // Theme Logic: Matching your brand colors
+                                 let colorClass = 'text-slate-300'; // Default text color
+
+                                 if (['accuracy', 'r2', '0.881', '0.879', 'metrics'].includes(cleanWord)) {
+                                   colorClass = 'text-brand-cyan font-bold'; // Match the Cyan highlights
+                                 } else if (['feature', 'recommendation', 'cross-validation', 'hyperparameter'].includes(cleanWord)) {
+                                   colorClass = 'text-brand-purple font-bold'; // Match the "AI Analysis" purple title
+                                 } else if (['good', 'strong', 'performance', 'signals'].includes(cleanWord)) {
+                                   colorClass = 'text-green-400 font-semibold'; // Positive indicators
+                                 } else if (['age', 'cement', 'water', 'strength'].includes(cleanWord)) {
+                                   colorClass = 'text-brand-indigo font-medium italic'; // Domain-specific terms
+                                 }
+
+                                 return <span key={i} className={`${colorClass} transition-colors duration-500`}>{word} </span>;
+                               })}
+                             </motion.div>
                              <button 
                                onClick={() => setAiAnalysis(null)}
                                className="w-full text-xs text-slate-400 hover:text-white border border-white/10 hover:bg-white/5 px-3 py-2 rounded-lg transition-all font-semibold"
@@ -556,8 +576,9 @@ function App() {
                            </div>
                          ) : (
                            <div className="flex-1 flex flex-col items-center justify-center text-center">
-                             <BrainCircuit className="w-10 h-10 text-slate-700 mb-3 opacity-50" />
-                             <p className="text-xs text-slate-500 mb-4">Click below to get an expert AI analysis of your model</p>
+                             <p className="text-slate-600 italic text-sm font-mono tracking-tighter mb-4">
+                               Awaiting execution... Click the button to interpret model metrics via Generative AI.
+                             </p>
                              <button 
                                onClick={() => analyzeResults(dataset.column_names[dataset.column_names.length - 1] || "Target")}
                                disabled={isAnalyzing}
