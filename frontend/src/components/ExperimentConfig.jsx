@@ -4,13 +4,18 @@ import { Activity, BarChart, Split, Play, CheckCircle2 } from 'lucide-react';
 const ALGORITHMS = {
   classification: [
     { id: 'random_forest', name: 'Random Forest Classifier' },
+    { id: 'decision_tree', name: 'Decision Tree Classifier' }, // NEW
+    { id: 'adaboost', name: 'AdaBoost Classifier' },           // NEW
     { id: 'xgboost', name: 'Gradient Boosting (Hist)' },
     { id: 'logistic_regression', name: 'Logistic Regression' },
+    { id: 'naive_bayes', name: 'Naive Bayes' },                // NEW
     { id: 'knn', name: 'K-Nearest Neighbors (KNN)' },
     { id: 'svm', name: 'Support Vector Machine (SVM)' }
   ],
   regression: [
     { id: 'random_forest', name: 'Random Forest Regressor' },
+    { id: 'decision_tree', name: 'Decision Tree Regressor' }, // NEW
+    { id: 'adaboost', name: 'AdaBoost Regressor' },           // NEW
     { id: 'xgboost', name: 'Gradient Boosting (Hist)' },
     { id: 'linear_regression', name: 'Linear Regression' },
     { id: 'knn', name: 'K-Nearest Neighbors (KNN)' },
@@ -25,7 +30,20 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
   const [scaling, setScaling] = useState('standard');
   const [splitRatio, setSplitRatio] = useState(0.8);
   const [algorithm, setAlgorithm] = useState('');
+// --- PRO MODE STATES ---
+  const [isProMode, setIsProMode] = useState(false);
+  const [hp, setHp] = useState({
+    n_estimators: 100,
+    max_depth: 10,
+    n_neighbors: 5,
+    learning_rate: 0.1
+  });
 
+  // Helper to update specific hyperparams
+  const updateHp = (key, val) => setHp(prev => ({ ...prev, [key]: val }));
+  
+  
+  
   // Watchdog 1: Smart Auto-detect Task Type
   useEffect(() => {
     if (!targetCol) return;
@@ -52,7 +70,9 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
 
   // Watchdog 3: Smart Scaling for Tree/Boosting Models
   useEffect(() => {
-    const isTreeModel = algorithm === 'random_forest' || algorithm === 'xgboost';
+    // Added decision_tree and adaboost here
+    const isTreeModel = ['random_forest', 'xgboost', 'decision_tree', 'adaboost'].includes(algorithm);
+    
     if (isTreeModel) {
       setScaling('none');
     } else if (scaling === 'none') {
@@ -68,6 +88,8 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
       target: targetCol,
       task_type: taskType,
       algorithm: algorithm, 
+      // NEW: Send the hyperparams to the backend
+      hyperparameters: isProMode ? hp : null, 
       preprocessing: {
         missing_value_strategy: missingValue,
         scaling: scaling,
@@ -218,6 +240,61 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
           </div>
         </div>
       </div>
+
+      {/* PRO MODE TOGGLE */}
+      <div className="flex items-center justify-between mb-6 p-4 bg-white/5 rounded-xl border border-white/10">
+        <div className="flex items-center gap-3">
+          <div 
+            onClick={() => setIsProMode(!isProMode)}
+            className={`w-12 h-6 rounded-full relative transition-all cursor-pointer ${isProMode ? 'bg-brand-purple shadow-[0_0_10px_rgba(168,85,247,0.4)]' : 'bg-slate-700'}`}
+          >
+            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isProMode ? 'left-7' : 'left-1'}`} />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-white uppercase tracking-widest">Enable Pro Mode</h4>
+            <p className="text-[10px] text-slate-500">Manual Hyperparameter Tuning</p>
+          </div>
+        </div>
+      </div>
+
+      {isProMode && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-5 bg-brand-purple/5 border border-brand-purple/20 rounded-xl mb-6 animate-in fade-in slide-in-from-top-2">
+          
+          {/* Show N-Estimators for Forest and AdaBoost */}
+          {['random_forest', 'adaboost'].includes(algorithm) && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-[11px] font-bold uppercase text-slate-400">
+                <span>Estimators (Trees)</span>
+                <span className="text-brand-purple">{hp.n_estimators}</span>
+              </div>
+              <input type="range" min="10" max="500" step="10" value={hp.n_estimators} onChange={(e) => updateHp('n_estimators', parseInt(e.target.value))} className="w-full h-1 bg-dark-900 rounded-lg appearance-none accent-brand-purple" />
+            </div>
+          )}
+
+          {/* Show Max Depth for Trees and Forests */}
+          {['random_forest', 'decision_tree'].includes(algorithm) && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-[11px] font-bold uppercase text-slate-400">
+                <span>Max Depth</span>
+                <span className="text-brand-purple">{hp.max_depth}</span>
+              </div>
+              <input type="range" min="1" max="50" step="1" value={hp.max_depth} onChange={(e) => updateHp('max_depth', parseInt(e.target.value))} className="w-full h-1 bg-dark-900 rounded-lg appearance-none accent-brand-purple" />
+            </div>
+          )}
+
+          {/* Show Neighbors for KNN */}
+          {algorithm === 'knn' && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-[11px] font-bold uppercase text-slate-400">
+                <span>K-Neighbors</span>
+                <span className="text-brand-purple">{hp.n_neighbors}</span>
+              </div>
+              <input type="range" min="1" max="30" step="1" value={hp.n_neighbors} onChange={(e) => updateHp('n_neighbors', parseInt(e.target.value))} className="w-full h-1 bg-dark-900 rounded-lg appearance-none accent-brand-purple" />
+            </div>
+          )}
+
+        </div>
+      )}
 
       <div className="mt-8 pt-6 border-t border-white/5 flex justify-end">
         <button 

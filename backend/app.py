@@ -27,6 +27,9 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, Hist
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.svm import SVC, SVR
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.ensemble import AdaBoostClassifier, AdaBoostRegressor
+from sklearn.naive_bayes import GaussianNB
 
 app = Flask(__name__)
 CORS(app)
@@ -123,6 +126,8 @@ def generate_plot():
 def train_model():
     try:
         config = request.json
+        # NEW: Get hyperparams from the request
+        hp = config.get('hyperparameters')
         filepath = os.path.join(UPLOAD_FOLDER, 'train.csv')
         df = pd.read_csv(filepath)
         target = config.get('target')
@@ -155,18 +160,41 @@ def train_model():
         if is_regression:
             models = {
                 'linear_regression': LinearRegression(),
-                'random_forest': RandomForestRegressor(n_estimators=100),
+                'random_forest': RandomForestRegressor(
+                    n_estimators=hp.get('n_estimators', 100) if hp else 100,
+                    max_depth=hp.get('max_depth', 10) if hp else 10
+                ),
+                'decision_tree': DecisionTreeRegressor(
+                    max_depth=hp.get('max_depth', 10) if hp else 10
+                ),
+                'knn': KNeighborsRegressor(
+                    n_neighbors=hp.get('n_neighbors', 5) if hp else 5
+                ),
+                'adaboost': AdaBoostRegressor(
+                    n_estimators=hp.get('n_estimators', 50) if hp else 50
+                ),
                 'xgboost': HistGradientBoostingRegressor(),
-                'knn': KNeighborsRegressor(n_neighbors=5),
                 'svr': SVR()
             }
         else:
             models = {
                 'logistic_regression': LogisticRegression(max_iter=1000),
-                'random_forest': RandomForestClassifier(n_estimators=100),
+                'random_forest': RandomForestClassifier(
+                    n_estimators=hp.get('n_estimators', 100) if hp else 100,
+                    max_depth=hp.get('max_depth', 10) if hp else 10
+                ),
+                'decision_tree': DecisionTreeClassifier(
+                    max_depth=hp.get('max_depth', 10) if hp else 10
+                ),
+                'knn': KNeighborsClassifier(
+                    n_neighbors=hp.get('n_neighbors', 5) if hp else 5
+                ),
+                'adaboost': AdaBoostClassifier(
+                    n_estimators=hp.get('n_estimators', 50) if hp else 50
+                ),
                 'xgboost': HistGradientBoostingClassifier(),
-                'knn': KNeighborsClassifier(n_neighbors=5),
-                'svm': SVC(probability=True)
+                'svm': SVC(probability=True),
+                'naive_bayes': GaussianNB()
             }
 
         model = models.get(algorithm, models['random_forest'])

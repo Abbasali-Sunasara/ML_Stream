@@ -202,16 +202,22 @@ function App() {
       setResults(data);
       setActiveTab('results');
 
-      // --- LOGIC: Add result to Hall of Fame ---
+      // --- LOGIC: Add result to Hall of Fame with FULL SPECS ---
       const newRun = {
         algo: data.metrics.algorithm_used.toUpperCase().replace(/_/g, ' '),
-        r2: data.metrics.r2,
-        accuracy: data.metrics.accuracy,
-        mae: data.metrics.mae,
-        rmse: data.metrics.rmse,
+        task: config.task_type || (data.metrics.r2 !== undefined ? 'regression' : 'classification'),
+        score: data.metrics.r2 || data.metrics.accuracy,
+        // SAVE ALL THE SPECS HERE:
+        specs: {
+          imputer: config.preprocessing?.missing_value_strategy,
+          scaling: config.preprocessing?.scaling,
+          split: `${((1 - (config.preprocessing?.test_size ?? 0.2)) * 100).toFixed(0)}/${((config.preprocessing?.test_size ?? 0.2) * 100).toFixed(0)}`,
+          tuned: !!config.hyperparameters,
+          params: config.hyperparameters || { default: "Standard" }
+        },
         time: new Date().toLocaleTimeString()
       };
-      setLeaderboard(prev => [...prev, newRun].sort((a, b) => (b.r2 || b.accuracy) - (a.r2 || a.accuracy)));
+      setLeaderboard(prev => [...prev, newRun].sort((a, b) => (b.score || 0) - (a.score || 0)));
 
     } catch (err) { setError(err.message); } finally { setIsLoading(false); }
   };
@@ -613,12 +619,64 @@ function App() {
                                 {idx === 0 ? <Star className="w-5 h-5" /> : idx + 1}
                              </div>
                              <div className="flex-1">
-                                <div className="text-sm font-bold text-white uppercase tracking-tight">{run.algo}</div>
-                                <div className="text-[10px] text-slate-500 font-mono uppercase">{run.time}</div>
+                                <div className="flex items-center gap-2">
+                                  <div className="text-sm font-bold text-white uppercase tracking-tight">{run.algo}</div>
+                                  {/* Task Badge */}
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-md border ${run.task === 'regression' ? 'border-brand-cyan/30 text-brand-cyan' : 'border-brand-purple/30 text-brand-purple'}`}>
+                                    {run.task === 'regression' ? 'REG' : 'CLASS'}
+                                  </span>
+                                </div>
+                                
+                                {/* NEW: Mini Specs Row */}
+                                <div className="flex gap-3 mt-1 opacity-60">
+                                  <span className="text-[9px] text-slate-400 font-mono">Impute: {run.specs?.imputer}</span>
+                                  <span className="text-[9px] text-slate-400 font-mono">Scale: {run.specs?.scaling}</span>
+                                  <span className="text-[9px] text-slate-400 font-mono">Split: {run.specs?.split}</span>
+                                  {run.specs?.tuned && <span className="text-[9px] text-yellow-500 font-bold uppercase">★ Tuned</span>}
+                                </div>
+
+                                {/* Hyperparameter Details on Hover */}
+                                <div className="group relative mt-1 w-fit">
+                                  <div className="text-[10px] text-brand-purple cursor-help underline decoration-dotted underline-offset-2">View Hyperparams</div>
+                                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-52 p-3 bg-dark-900 border border-white/10 rounded-lg shadow-2xl z-50 animate-in fade-in zoom-in-95">
+                                    <div className="text-[10px] text-slate-300 space-y-2">
+                                      {Object.entries(run.specs?.params || {}).map(([key, val]) => {
+                                        // --- SMART FILTER LOGIC ---
+                                        const isTreeParam = ['n_estimators', 'max_depth'].includes(key);
+                                        const isNeighborParam = ['n_neighbors'].includes(key);
+                                        const isBoostParam = ['learning_rate', 'n_estimators'].includes(key);
+
+                                        const isForest = run.algo.includes('RANDOM FOREST');
+                                        const isTree = run.algo.includes('DECISION TREE');
+                                        const isKNN = run.algo.includes('KNN');
+                                        const isBoost = run.algo.includes('ADABOOST');
+
+                                        // Only show if the param matches the algorithm type
+                                        const shouldShow = 
+                                          (isForest && isTreeParam) || 
+                                          (isTree && key === 'max_depth') || 
+                                          (isKNN && isNeighborParam) ||
+                                          (isBoost && isBoostParam) ||
+                                          (key === 'default');
+
+                                        if (!shouldShow) return null;
+
+                                        return (
+                                          <div key={key} className="flex justify-between border-b border-white/5 pb-1 last:border-0">
+                                            <span className="capitalize text-slate-500">{key.replace('_', ' ')}:</span>
+                                            <span className="text-brand-cyan font-mono font-bold">{String(val)}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="text-[10px] text-slate-500 font-mono uppercase mt-1">{run.time}</div>
                              </div>
                              <div className="text-right">
                                 <div className="text-lg font-mono font-bold text-brand-cyan">
-                                   {run.r2 ? `${(run.r2 * 100).toFixed(1)}%` : `${(run.accuracy * 100).toFixed(1)}%`}
+                                  {run.score !== undefined ? `${(run.score * 100).toFixed(1)}%` : 'N/A'}
                                 </div>
                                 <div className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Metric Score</div>
                              </div>
