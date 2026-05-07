@@ -202,22 +202,19 @@ function App() {
       setResults(data);
       setActiveTab('results');
 
-      // --- LOGIC: Add result to Hall of Fame with FULL SPECS ---
+      // --- LOGIC: Add result to Hall of Fame ---
       const newRun = {
         algo: data.metrics.algorithm_used.toUpperCase().replace(/_/g, ' '),
-        task: config.task_type || (data.metrics.r2 !== undefined ? 'regression' : 'classification'),
-        score: data.metrics.r2 || data.metrics.accuracy,
-        // SAVE ALL THE SPECS HERE:
-        specs: {
-          imputer: config.preprocessing?.missing_value_strategy,
-          scaling: config.preprocessing?.scaling,
-          split: `${((1 - (config.preprocessing?.test_size ?? 0.2)) * 100).toFixed(0)}/${((config.preprocessing?.test_size ?? 0.2) * 100).toFixed(0)}`,
-          tuned: !!config.hyperparameters,
-          params: config.hyperparameters || { default: "Standard" }
-        },
-        time: new Date().toLocaleTimeString()
+        r2: data.metrics.r2,
+        accuracy: data.metrics.accuracy,
+        mae: data.metrics.mae,
+        rmse: data.metrics.rmse,
+        time: new Date().toLocaleTimeString(),
+        // RESTORED: This saves the settings for the tooltip
+        params: data.best_params,
+        isAuto: data.is_auto_tuned
       };
-      setLeaderboard(prev => [...prev, newRun].sort((a, b) => (b.score || 0) - (a.score || 0)));
+      setLeaderboard(prev => [...prev, newRun].sort((a, b) => (b.r2 || b.accuracy) - (a.r2 || a.accuracy)));
 
     } catch (err) { setError(err.message); } finally { setIsLoading(false); }
   };
@@ -457,6 +454,43 @@ function App() {
                         </div>
                      </div>
 
+                     {/* --- MODEL HEALTH INTELLIGENCE ALERT --- */}
+                     {results.model_health && (
+                       <motion.div 
+                         initial={{ opacity: 0, y: 10 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         className={`mb-6 p-4 rounded-2xl border flex items-start gap-4 shadow-xl ${
+                           results.model_health.status === 'Overfitting' ? 'bg-red-500/10 border-red-500/30 text-red-200' :
+                           results.model_health.status === 'Underfitting' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-200' :
+                           'bg-green-500/10 border-green-500/30 text-green-200'
+                         }`}
+                       >
+                         <div className={`p-2 rounded-lg bg-dark-900/50 border ${
+                           results.model_health.color === 'red' ? 'border-red-500/50' : 
+                           results.model_health.color === 'yellow' ? 'border-yellow-500/50' : 'border-green-500/50'
+                         }`}>
+                           <BrainCircuit className={`w-5 h-5 ${
+                             results.model_health.color === 'red' ? 'text-red-400' : 
+                             results.model_health.color === 'yellow' ? 'text-yellow-400' : 'text-green-400'
+                           }`} />
+                         </div>
+                         
+                         <div className="flex-1 text-left">
+                           <div className="flex items-center justify-between mb-1">
+                             <h4 className="text-sm font-bold uppercase tracking-tight flex items-center gap-2">
+                               Intelligence Alert: {results.model_health.status}
+                             </h4>
+                             <span className="font-mono text-[10px] opacity-60">
+                               Gap: {(results.model_health.gap * 100).toFixed(1)}%
+                             </span>
+                           </div>
+                           <p className="text-xs leading-relaxed opacity-90">
+                             {results.model_health.message}
+                           </p>
+                         </div>
+                       </motion.div>
+                     )}
+
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full mb-6">
                        {results.metrics.confusion_matrix ? (
                           <div className="bg-dark-900/50 p-6 rounded-xl border border-white/5 shadow-xl flex flex-col">
@@ -612,77 +646,56 @@ function App() {
                          <p className="text-slate-500 font-mono text-sm uppercase">No models trained yet in this session.</p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
+                       <div className="space-y-3">
+                        {/* RESTORED LEADERBOARD ITEM WITH TOOLTIP */}
                         {leaderboard.map((run, idx) => (
-                          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: idx * 0.1 }} key={idx} className={`flex items-center gap-4 p-4 rounded-xl border ${idx === 0 ? 'bg-brand-indigo/10 border-brand-indigo/50' : 'bg-dark-900/40 border-white/5'}`}>
-                             <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold font-mono ${idx === 0 ? 'bg-yellow-500 text-dark-900 shadow-[0_0_15px_rgba(234,179,8,0.5)]' : 'bg-dark-800 text-slate-400'}`}>
-                                {idx === 0 ? <Star className="w-5 h-5" /> : idx + 1}
-                             </div>
-                             <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <div className="text-sm font-bold text-white uppercase tracking-tight">{run.algo}</div>
-                                  {/* Task Badge */}
-                                  <span className={`text-[10px] px-2 py-0.5 rounded-md border ${run.task === 'regression' ? 'border-brand-cyan/30 text-brand-cyan' : 'border-brand-purple/30 text-brand-purple'}`}>
-                                    {run.task === 'regression' ? 'REG' : 'CLASS'}
-                                  </span>
+                          <motion.div 
+                           initial={{ x: -20, opacity: 0 }} 
+                           animate={{ x: 0, opacity: 1 }} 
+                           transition={{ delay: idx * 0.1 }} 
+                           key={idx} 
+                           className={`group relative flex items-center gap-4 p-4 rounded-xl border ${idx === 0 ? 'bg-brand-indigo/10 border-brand-indigo/50' : 'bg-dark-900/40 border-white/5'}`}
+                          >
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold font-mono ${idx === 0 ? 'bg-yellow-500 text-dark-900 shadow-[0_0_15px_rgba(234,179,8,0.5)]' : 'bg-dark-800 text-slate-400'}`}>
+                              {idx === 0 ? <Star className="w-5 h-5" /> : idx + 1}
+                            </div>
+                             
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                               <span className="text-sm font-bold text-white uppercase tracking-tight cursor-help border-b border-dotted border-slate-500 group-hover:border-brand-cyan">
+                                {run.algo}
+                               </span>
+                               {run.isAuto && (
+                                <span className="text-[9px] bg-brand-cyan/20 text-brand-cyan px-1.5 py-0.5 rounded border border-brand-cyan/30 font-bold flex items-center gap-1">
+                                  🤖 AUTOTUNED
+                                </span>
+                               )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 font-mono uppercase">{run.time}</div>
+
+                              {/* --- THE TOOLTIP (Restored) --- */}
+                              <div className="absolute left-14 top-full mt-2 hidden group-hover:block z-[100] w-64 bg-dark-800 border border-white/10 p-3 rounded-xl shadow-2xl backdrop-blur-xl">
+                                <h4 className="text-[10px] font-bold text-brand-cyan uppercase mb-2">Model Parameters</h4>
+                                <div className="space-y-1">
+                                  {run.params ? Object.entries(run.params).map(([key, val]) => (
+                                   <div key={key} className="flex justify-between text-[10px]">
+                                     <span className="text-slate-400 font-mono">{key}:</span>
+                                     <span className="text-white font-bold">{val?.toString() || 'default'}</span>
+                                   </div>
+                                  )) : <p className="text-[10px] text-slate-500">Standard defaults used.</p>}
                                 </div>
-                                
-                                {/* NEW: Mini Specs Row */}
-                                <div className="flex gap-3 mt-1 opacity-60">
-                                  <span className="text-[9px] text-slate-400 font-mono">Impute: {run.specs?.imputer}</span>
-                                  <span className="text-[9px] text-slate-400 font-mono">Scale: {run.specs?.scaling}</span>
-                                  <span className="text-[9px] text-slate-400 font-mono">Split: {run.specs?.split}</span>
-                                  {run.specs?.tuned && <span className="text-[9px] text-yellow-500 font-bold uppercase">★ Tuned</span>}
-                                </div>
+                              </div>
+                            </div>
 
-                                {/* Hyperparameter Details on Hover */}
-                                <div className="group relative mt-1 w-fit">
-                                  <div className="text-[10px] text-brand-purple cursor-help underline decoration-dotted underline-offset-2">View Hyperparams</div>
-                                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-52 p-3 bg-dark-900 border border-white/10 rounded-lg shadow-2xl z-50 animate-in fade-in zoom-in-95">
-                                    <div className="text-[10px] text-slate-300 space-y-2">
-                                      {Object.entries(run.specs?.params || {}).map(([key, val]) => {
-                                        // --- SMART FILTER LOGIC ---
-                                        const isTreeParam = ['n_estimators', 'max_depth'].includes(key);
-                                        const isNeighborParam = ['n_neighbors'].includes(key);
-                                        const isBoostParam = ['learning_rate', 'n_estimators'].includes(key);
-
-                                        const isForest = run.algo.includes('RANDOM FOREST');
-                                        const isTree = run.algo.includes('DECISION TREE');
-                                        const isKNN = run.algo.includes('KNN');
-                                        const isBoost = run.algo.includes('ADABOOST');
-
-                                        // Only show if the param matches the algorithm type
-                                        const shouldShow = 
-                                          (isForest && isTreeParam) || 
-                                          (isTree && key === 'max_depth') || 
-                                          (isKNN && isNeighborParam) ||
-                                          (isBoost && isBoostParam) ||
-                                          (key === 'default');
-
-                                        if (!shouldShow) return null;
-
-                                        return (
-                                          <div key={key} className="flex justify-between border-b border-white/5 pb-1 last:border-0">
-                                            <span className="capitalize text-slate-500">{key.replace('_', ' ')}:</span>
-                                            <span className="text-brand-cyan font-mono font-bold">{String(val)}</span>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="text-[10px] text-slate-500 font-mono uppercase mt-1">{run.time}</div>
-                             </div>
-                             <div className="text-right">
-                                <div className="text-lg font-mono font-bold text-brand-cyan">
-                                  {run.score !== undefined ? `${(run.score * 100).toFixed(1)}%` : 'N/A'}
-                                </div>
-                                <div className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Metric Score</div>
-                             </div>
+                            <div className="text-right">
+                              <div className="text-lg font-mono font-bold text-brand-cyan">
+                                {run.r2 ? `${(run.r2 * 100).toFixed(1)}%` : `${(run.accuracy * 100).toFixed(1)}%`}
+                              </div>
+                              <div className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Metric Score</div>
+                            </div>
                           </motion.div>
                         ))}
-                      </div>
+                       </div>
                     )}
                   </div>
 

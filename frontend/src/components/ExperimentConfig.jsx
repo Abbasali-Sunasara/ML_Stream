@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, BarChart, Split, Play, CheckCircle2 } from 'lucide-react';
+import { Activity, BarChart, Split, Play, CheckCircle2, Wand2 } from 'lucide-react';
 
 const ALGORITHMS = {
   classification: [
@@ -23,6 +23,48 @@ const ALGORITHMS = {
   ]
 };
 
+const ALGO_PARAMS = {
+  logistic_regression: [
+    { name: 'C', label: 'Regularization (C)', type: 'slider', min: 0.01, max: 10, step: 0.1, default: 1.0 },
+    { name: 'penalty', label: 'Penalty', type: 'dropdown', options: ['l1', 'l2'], default: 'l2' }
+  ],
+  svm: [
+    { name: 'C', label: 'Penalty (C)', type: 'slider', min: 0.1, max: 10, step: 0.1, default: 1.0 },
+    { name: 'kernel', label: 'Kernel Type', type: 'dropdown', options: ['linear', 'rbf', 'poly'], default: 'rbf' }
+  ],
+  svr: [
+    { name: 'C', label: 'Penalty (C)', type: 'slider', min: 0.1, max: 10, step: 0.1, default: 1.0 },
+    { name: 'kernel', label: 'Kernel Type', type: 'dropdown', options: ['linear', 'rbf', 'poly'], default: 'rbf' }
+  ],
+  knn: [
+    { name: 'n_neighbors', label: 'K-Neighbors', type: 'slider', min: 1, max: 30, step: 1, default: 5 },
+    { name: 'weights', label: 'Weight Function', type: 'dropdown', options: ['uniform', 'distance'], default: 'uniform' }
+  ],
+  decision_tree: [
+    { name: 'max_depth', label: 'Max Depth', type: 'slider', min: 1, max: 50, step: 1, default: 10 },
+    { name: 'min_samples_split', label: 'Min Samples to Split', type: 'slider', min: 2, max: 20, step: 1, default: 2 }
+  ],
+  adaboost: [
+    { name: 'n_estimators', label: 'Estimators', type: 'slider', min: 10, max: 200, step: 10, default: 50 },
+    { name: 'learning_rate', label: 'Learning Rate', type: 'slider', min: 0.01, max: 2.0, step: 0.1, default: 1.0 }
+  ],
+  naive_bayes: [
+    { name: 'var_smoothing', label: 'Variance Smoothing', type: 'slider', min: 0.000000001, max: 0.0000001, step: 0.000000001, default: 0.000000001 }
+  ],
+  xgboost: [
+    { name: 'learning_rate', label: 'Learning Rate', type: 'slider', min: 0.01, max: 0.5, step: 0.01, default: 0.1 },
+    { name: 'max_iter', label: 'Max Iterations', type: 'slider', min: 10, max: 300, step: 10, default: 100 }
+  ],
+  random_forest: [
+    { name: 'n_estimators', label: 'Estimators', type: 'slider', min: 10, max: 500, step: 10, default: 100 },
+    { name: 'max_depth', label: 'Max Depth', type: 'slider', min: 1, max: 50, step: 1, default: 10 },
+    { name: 'min_samples_split', label: 'Min Samples to Split', type: 'slider', min: 2, max: 10, step: 1, default: 2 }
+  ],
+  linear_regression: [
+    { name: 'fit_intercept', label: 'Fit Intercept', type: 'dropdown', options: ['True', 'False'], default: 'True' }
+  ]
+};
+
 export default function ExperimentConfig({ dataset, onStartTraining }) {
   const [targetCol, setTargetCol] = useState('');
   const [taskType, setTaskType] = useState('classification');
@@ -39,8 +81,48 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
     learning_rate: 0.1
   });
 
+  // ----- Auto Tune States---- //
+  const [isAutoTune, setIsAutoTune] = useState(false);
+  const [searchIntensity, setSearchIntensity] = useState(10); // Number of iterations
+
+  // ----- Data Healing States -----
+  const [outlierStrategy, setOutlierStrategy] = useState('none');
+  const [imbalanceStrategy, setImbalanceStrategy] = useState('none');
+
   // Helper to update specific hyperparams
-  const updateHp = (key, val) => setHp(prev => ({ ...prev, [key]: val }));
+  const numericHpKeys = ['n_estimators', 'max_depth', 'n_neighbors', 'min_samples_split', 'max_iter', 'learning_rate', 'C', 'gamma', 'var_smoothing', 'epsilon'];
+  const updateHp = (key, val) => {
+    const nextValue = numericHpKeys.includes(key) ? Number(val) : val;
+    setHp(prev => ({ ...prev, [key]: nextValue }));
+  };
+  
+  // RESTORED/FIXED: Helper to reset hyperparameters to defaults
+  const resetToDefaults = (algo) => {
+    const defaults = {};
+    ALGO_PARAMS[algo]?.forEach(p => {
+      defaults[p.name] = p.default;
+    });
+    setHp(defaults);
+  };
+
+  // FIXED: Mutually Exclusive Toggles
+  const toggleProMode = () => {
+    const nextState = !isProMode;
+    setIsProMode(nextState);
+    if (nextState) {
+      setIsAutoTune(false);
+    }
+    resetToDefaults(algorithm);
+  };
+
+  const toggleAutoTune = () => {
+    const nextState = !isAutoTune;
+    setIsAutoTune(nextState);
+    if (nextState) {
+      setIsProMode(false);
+    }
+    resetToDefaults(algorithm);
+  };
   
   
   
@@ -80,6 +162,19 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
     }
   }, [algorithm]);
 
+  // Watchdog 4: Populate default hyperparameters when algorithm changes
+  useEffect(() => {
+    if (!algorithm || !ALGO_PARAMS[algorithm]) return;
+
+    const defaults = {};
+    ALGO_PARAMS[algorithm].forEach(p => {
+      defaults[p.name] = p.default;
+    });
+    
+    // This ensures 'hp' always has the correct keys for the selected algo
+    setHp(defaults);
+  }, [algorithm]);
+
   const handleStart = () => {
     if (!targetCol) return alert("Please select a target column first!");
     
@@ -88,12 +183,16 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
       target: targetCol,
       task_type: taskType,
       algorithm: algorithm, 
-      // NEW: Send the hyperparams to the backend
-      hyperparameters: isProMode ? hp : null, 
+      auto_tune: isAutoTune,
+      hyperparameters: isProMode && !isAutoTune ? hp : null,
       preprocessing: {
         missing_value_strategy: missingValue,
         scaling: scaling,
-        test_size: parseFloat((1 - splitRatio).toFixed(2))
+        test_size: parseFloat((1 - splitRatio).toFixed(2)),
+        healing: {
+          outliers: outlierStrategy,
+          imbalance: imbalanceStrategy
+        }
       }
     });
   };
@@ -238,61 +337,121 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
               className="w-full h-1.5 bg-dark-900 rounded-full appearance-none cursor-pointer accent-brand-cyan"
             />
           </div>
+
+          <div className="pt-4 border-t border-white/5 mt-4 space-y-4">
+            <h4 className="text-[10px] font-bold text-brand-indigo uppercase tracking-widest flex items-center gap-2">
+              <Wand2 className="w-3 h-3" /> Data Healing
+            </h4>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase">Outlier Logic</label>
+                <select 
+                  value={outlierStrategy}
+                  onChange={(e) => setOutlierStrategy(e.target.value)}
+                  className="w-full bg-dark-900/50 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:ring-1 focus:ring-brand-indigo"
+                >
+                  <option value="none">Keep All Data</option>
+                  <option value="remove">Remove (IQR 1.5x)</option>
+                </select>
+              </div>
+
+              {taskType === 'classification' && (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase">Handle Imbalance</label>
+                  <select 
+                    value={imbalanceStrategy}
+                    onChange={(e) => setImbalanceStrategy(e.target.value)}
+                    className="w-full bg-dark-900/50 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:ring-1 focus:ring-brand-indigo"
+                  >
+                    <option value="none">None</option>
+                    <option value="smote">SMOTE (Oversample)</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* PRO MODE TOGGLE */}
+      {/* UPDATED PRO MODE TOGGLE */}
       <div className="flex items-center justify-between mb-6 p-4 bg-white/5 rounded-xl border border-white/10">
         <div className="flex items-center gap-3">
           <div 
-            onClick={() => setIsProMode(!isProMode)}
-            className={`w-12 h-6 rounded-full relative transition-all cursor-pointer ${isProMode ? 'bg-brand-purple shadow-[0_0_10px_rgba(168,85,247,0.4)]' : 'bg-slate-700'}`}
+            onClick={toggleProMode} // Use the new function
+            className={`w-12 h-6 rounded-full relative transition-all cursor-pointer ${isProMode ? 'bg-brand-purple' : 'bg-slate-700'}`}
           >
             <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isProMode ? 'left-7' : 'left-1'}`} />
           </div>
           <div>
             <h4 className="text-xs font-bold text-white uppercase tracking-widest">Enable Pro Mode</h4>
-            <p className="text-[10px] text-slate-500">Manual Hyperparameter Tuning</p>
+            <p className="text-[10px] text-slate-500">Manual Hyperparameter Tuning (Values reset on toggle)</p>
           </div>
         </div>
       </div>
 
+      {/* UPDATED AUTO-TUNE TOGGLE */}
+      <div className="flex items-center justify-between mb-6 p-4 bg-brand-cyan/5 rounded-xl border border-brand-cyan/20">
+        <div className="flex items-center gap-3">
+          <div 
+            onClick={toggleAutoTune} // Use the new function
+            className={`w-12 h-6 rounded-full relative transition-all cursor-pointer ${isAutoTune ? 'bg-brand-cyan' : 'bg-slate-700'}`}
+          >
+            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isAutoTune ? 'left-7' : 'left-1'}`} />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-white uppercase tracking-widest">Enable Auto-Tune Engine</h4>
+            <p className="text-[10px] text-slate-500">AI search (Disables Manual Mode)</p>
+          </div>
+        </div>
+        {/* ... intensity slider code ... */}
+        {isAutoTune && (
+          <div className="flex items-center gap-4 animate-in fade-in zoom-in duration-300">
+            <span className="text-[10px] font-bold text-brand-cyan uppercase">Intensity: {searchIntensity}</span>
+            <input 
+              type="range" min="5" max="30" step="5" 
+              value={searchIntensity} 
+              onChange={(e) => setSearchIntensity(Number(e.target.value))}
+              className="w-24 h-1 bg-dark-900 rounded-lg accent-brand-cyan" 
+            />
+          </div>
+        )}
+      </div>
+
       {isProMode && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-5 bg-brand-purple/5 border border-brand-purple/20 rounded-xl mb-6 animate-in fade-in slide-in-from-top-2">
-          
-          {/* Show N-Estimators for Forest and AdaBoost */}
-          {['random_forest', 'adaboost'].includes(algorithm) && (
-            <div className="space-y-2">
+          {ALGO_PARAMS[algorithm]?.map((param) => (
+            <div key={param.name} className="space-y-2">
               <div className="flex justify-between text-[11px] font-bold uppercase text-slate-400">
-                <span>Estimators (Trees)</span>
-                <span className="text-brand-purple">{hp.n_estimators}</span>
+                <span>{param.label}</span>
+                <span className="text-brand-purple">
+                  {hp[param.name] !== undefined ? hp[param.name] : param.default}
+                </span>
               </div>
-              <input type="range" min="10" max="500" step="10" value={hp.n_estimators} onChange={(e) => updateHp('n_estimators', parseInt(e.target.value))} className="w-full h-1 bg-dark-900 rounded-lg appearance-none accent-brand-purple" />
-            </div>
-          )}
 
-          {/* Show Max Depth for Trees and Forests */}
-          {['random_forest', 'decision_tree'].includes(algorithm) && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-[11px] font-bold uppercase text-slate-400">
-                <span>Max Depth</span>
-                <span className="text-brand-purple">{hp.max_depth}</span>
-              </div>
-              <input type="range" min="1" max="50" step="1" value={hp.max_depth} onChange={(e) => updateHp('max_depth', parseInt(e.target.value))} className="w-full h-1 bg-dark-900 rounded-lg appearance-none accent-brand-purple" />
+              {param.type === 'slider' ? (
+                <input 
+                  type="range" 
+                  min={param.min} 
+                  max={param.max} 
+                  step={param.step} 
+                  value={hp[param.name] !== undefined ? hp[param.name] : param.default} 
+                  onChange={(e) => updateHp(param.name, e.target.value)} 
+                  className="w-full h-1 bg-dark-900 rounded-lg appearance-none accent-brand-purple" 
+                />
+              ) : (
+                <select
+                  value={hp[param.name] !== undefined ? hp[param.name] : param.default}
+                  onChange={(e) => updateHp(param.name, e.target.value)}
+                  className="w-full bg-dark-900/50 border border-slate-700 text-slate-200 text-xs rounded-lg p-2 focus:ring-1 focus:ring-brand-purple outline-none"
+                >
+                  {param.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              )}
             </div>
+          )) || (
+            <p className="text-[10px] text-slate-500 italic col-span-2">No additional parameters available for this model.</p>
           )}
-
-          {/* Show Neighbors for KNN */}
-          {algorithm === 'knn' && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-[11px] font-bold uppercase text-slate-400">
-                <span>K-Neighbors</span>
-                <span className="text-brand-purple">{hp.n_neighbors}</span>
-              </div>
-              <input type="range" min="1" max="30" step="1" value={hp.n_neighbors} onChange={(e) => updateHp('n_neighbors', parseInt(e.target.value))} className="w-full h-1 bg-dark-900 rounded-lg appearance-none accent-brand-purple" />
-            </div>
-          )}
-
         </div>
       )}
 

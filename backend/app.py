@@ -8,6 +8,7 @@ import json
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from imblearn.over_sampling import SMOTE
 
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -21,15 +22,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, confusion_matrix, mean_absolute_error
+from sklearn.model_selection import RandomizedSearchCV, KFold
 
 # Algorithms
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor
+from sklearn.ensemble import AdaBoostClassifier, AdaBoostRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.svm import SVC, SVR
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-from sklearn.ensemble import AdaBoostClassifier, AdaBoostRegressor
-from sklearn.naive_bayes import GaussianNB
 
 app = Flask(__name__)
 CORS(app)
@@ -37,6 +38,109 @@ CORS(app)
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+
+def parse_params(algo, sent_params):
+    if not sent_params:
+        return {}
+    parsed = {}
+    for key, value in sent_params.items():
+        try:
+            # Handle Integers (most sliders)
+            if key in ['n_estimators', 'max_depth', 'n_neighbors', 'max_iter', 'min_samples_split']:
+                parsed[key] = int(value)
+            # Handle Floats
+            elif key in ['learning_rate', 'C', 'gamma', 'var_smoothing', 'epsilon']:
+                parsed[key] = float(value)
+            # Handle Booleans from dropdowns
+            elif value in ['True', 'False']:
+                parsed[key] = (value == 'True')
+            # Handle Strings (Kernels/Weights)
+            else:
+                parsed[key] = value
+        except:
+            continue
+    return parsed
+
+
+def build_model(algorithm, is_regression, hp_parsed):
+    if is_regression:
+        if algorithm == 'linear_regression':
+            return LinearRegression(**{k: v for k, v in hp_parsed.items() if k in ['fit_intercept', 'copy_X', 'n_jobs']})
+        if algorithm == 'random_forest':
+            return RandomForestRegressor(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']})
+        if algorithm == 'decision_tree':
+            return DecisionTreeRegressor(**{k: v for k, v in hp_parsed.items() if k in ['max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'random_state']})
+        if algorithm == 'knn':
+            return KNeighborsRegressor(**{k: v for k, v in hp_parsed.items() if k in ['n_neighbors', 'weights', 'algorithm', 'p']})
+        if algorithm == 'adaboost':
+            return AdaBoostRegressor(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'learning_rate', 'loss', 'random_state']})
+        if algorithm == 'xgboost':
+            return HistGradientBoostingRegressor(**{k: v for k, v in hp_parsed.items() if k in ['learning_rate', 'max_iter', 'max_depth', 'min_samples_leaf', 'l2_regularization', 'random_state']})
+        if algorithm == 'svr':
+            return SVR(**{k: v for k, v in hp_parsed.items() if k in ['C', 'kernel', 'gamma', 'epsilon', 'degree', 'coef0']})
+        return RandomForestRegressor(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']})
+
+    if algorithm == 'logistic_regression':
+        filtered = {k: v for k, v in hp_parsed.items() if k in ['C', 'penalty', 'solver', 'fit_intercept', 'max_iter', 'class_weight', 'random_state']}
+        filtered['max_iter'] = filtered.get('max_iter', 1000)
+        return LogisticRegression(**filtered)
+    if algorithm == 'random_forest':
+        return RandomForestClassifier(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']})
+    if algorithm == 'decision_tree':
+        return DecisionTreeClassifier(**{k: v for k, v in hp_parsed.items() if k in ['max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'random_state']})
+    if algorithm == 'knn':
+        return KNeighborsClassifier(**{k: v for k, v in hp_parsed.items() if k in ['n_neighbors', 'weights', 'algorithm', 'p']})
+    if algorithm == 'adaboost':
+        return AdaBoostClassifier(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'learning_rate', 'algorithm', 'random_state']})
+    if algorithm == 'xgboost':
+        return HistGradientBoostingClassifier(**{k: v for k, v in hp_parsed.items() if k in ['learning_rate', 'max_iter', 'max_depth', 'min_samples_leaf', 'l2_regularization', 'random_state']})
+    if algorithm == 'svm':
+        filtered = {k: v for k, v in hp_parsed.items() if k in ['C', 'kernel', 'gamma', 'degree', 'coef0']}
+        filtered['probability'] = hp_parsed.get('probability', True)
+        return SVC(**filtered)
+    return RandomForestClassifier(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']})
+
+
+# These are the "Search Ranges" the AI will explore
+PARAM_GRIDS = {
+    'random_forest': {
+        'n_estimators': [50, 100, 200, 300, 500],
+        'max_depth': [None, 10, 20, 30, 50],
+        'min_samples_split': [2, 5, 10]
+    },
+    'decision_tree': {
+        'max_depth': [None, 10, 20, 30, 50],
+        'min_samples_split': [2, 5, 10, 20]
+    },
+    'knn': {
+        'n_neighbors': [3, 5, 7, 11, 15, 21, 25],
+        'weights': ['uniform', 'distance']
+    },
+    'adaboost': {
+        'n_estimators': [50, 100, 150, 200],
+        'learning_rate': [0.01, 0.1, 0.5, 1.0, 2.0]
+    },
+    'xgboost': {
+        'learning_rate': [0.01, 0.05, 0.1, 0.3],
+        'max_iter': [50, 100, 200, 300]
+    },
+    'svm': {
+        'C': [0.1, 1, 10, 100],
+        'kernel': ['linear', 'rbf', 'poly']
+    },
+    'svr': {
+        'C': [0.1, 1, 10, 100],
+        'epsilon': [0.01, 0.1, 0.2, 0.5]
+    },
+    'logistic_regression': {
+        'C': [0.1, 1, 10, 100],
+        'penalty': ['l2'] # Keeping l2 for stability across solvers
+    },
+    'linear_regression': {
+        'fit_intercept': [True, False]
+    }
+}
 
 # ------------------------------------------------------------------
 # --- 1. UPLOAD ROUTE (Complete with Data Health Logic) ---
@@ -126,11 +230,12 @@ def generate_plot():
 def train_model():
     try:
         config = request.json
-        # NEW: Get hyperparams from the request
         hp = config.get('hyperparameters')
         filepath = os.path.join(UPLOAD_FOLDER, 'train.csv')
         df = pd.read_csv(filepath)
         target = config.get('target')
+        algorithm = config.get('algorithm', 'random_forest')
+        hp_parsed = parse_params(algorithm, hp)
 
         strategy = config.get('preprocessing', {}).get('missing_value_strategy', 'drop')
         if strategy == 'drop':
@@ -147,6 +252,28 @@ def train_model():
             le = LabelEncoder()
             y = le.fit_transform(y)
 
+        # --- NEW: DATA HEALING LOGIC ---
+        healing_config = config.get('preprocessing', {}).get('healing', {})
+        
+        # 1. Outlier Handling (IQR Method)
+        if healing_config.get('outliers') == 'remove':
+            for col in X.columns:
+                Q1 = X[col].quantile(0.25)
+                Q3 = X[col].quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                # Filtering rows
+                X = X[(X[col] >= lower_bound) & (X[col] <= upper_bound)]
+                y = y[X.index] # Keep y in sync
+
+        # 2. Imbalance Handling (SMOTE)
+        if not is_regression and healing_config.get('imbalance') == 'smote':
+            # Check if we have enough samples to run SMOTE
+            if y.value_counts().min() > 1:
+                smote = SMOTE(random_state=42)
+                X, y = smote.fit_resample(X, y)
+
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
         scaling = config.get('preprocessing', {}).get('scaling', 'none')
@@ -155,50 +282,37 @@ def train_model():
             X_train = scaler.fit_transform(X_train)
             X_test = scaler.transform(X_test)
 
-        algorithm = config.get('algorithm', 'random_forest')
+        model = build_model(algorithm, is_regression, hp_parsed)
         
-        if is_regression:
-            models = {
-                'linear_regression': LinearRegression(),
-                'random_forest': RandomForestRegressor(
-                    n_estimators=hp.get('n_estimators', 100) if hp else 100,
-                    max_depth=hp.get('max_depth', 10) if hp else 10
-                ),
-                'decision_tree': DecisionTreeRegressor(
-                    max_depth=hp.get('max_depth', 10) if hp else 10
-                ),
-                'knn': KNeighborsRegressor(
-                    n_neighbors=hp.get('n_neighbors', 5) if hp else 5
-                ),
-                'adaboost': AdaBoostRegressor(
-                    n_estimators=hp.get('n_estimators', 50) if hp else 50
-                ),
-                'xgboost': HistGradientBoostingRegressor(),
-                'svr': SVR()
-            }
-        else:
-            models = {
-                'logistic_regression': LogisticRegression(max_iter=1000),
-                'random_forest': RandomForestClassifier(
-                    n_estimators=hp.get('n_estimators', 100) if hp else 100,
-                    max_depth=hp.get('max_depth', 10) if hp else 10
-                ),
-                'decision_tree': DecisionTreeClassifier(
-                    max_depth=hp.get('max_depth', 10) if hp else 10
-                ),
-                'knn': KNeighborsClassifier(
-                    n_neighbors=hp.get('n_neighbors', 5) if hp else 5
-                ),
-                'adaboost': AdaBoostClassifier(
-                    n_estimators=hp.get('n_estimators', 50) if hp else 50
-                ),
-                'xgboost': HistGradientBoostingClassifier(),
-                'svm': SVC(probability=True),
-                'naive_bayes': GaussianNB()
-            }
+        # Check if Auto-Tune is requested
+        is_auto_tune = config.get('auto_tune', False)
+        best_params = hp_parsed
+        cv_score = None
 
-        model = models.get(algorithm, models['random_forest'])
-        model.fit(X_train, y_train)
+        if is_auto_tune and algorithm in PARAM_GRIDS:
+            # 1. Handle Small Dataset Edge Case (Adjust Folds)
+            n_samples = X_train.shape[0]
+            n_folds = min(5, n_samples) if n_samples >= 2 else 2
+            
+            # 2. Setup Randomized Search
+            search = RandomizedSearchCV(
+                estimator=model,
+                param_distributions=PARAM_GRIDS[algorithm],
+                n_iter=10, # Try 10 random combinations
+                cv=n_folds,
+                scoring='r2' if is_regression else 'accuracy',
+                n_jobs=-1, # Use all CPU cores for speed
+                random_state=42
+            )
+            
+            search.fit(X_train, y_train)
+            model = search.best_estimator_
+            # Record the best params found to send back to UI
+            best_params = search.best_params_
+            cv_score = float(search.best_score_)
+        else:
+            # Standard Manual Fit
+            model.fit(X_train, y_train)
         
         joblib.dump(model, os.path.join(UPLOAD_FOLDER, 'trained_model.pkl'))
         
@@ -224,8 +338,52 @@ def train_model():
             metrics['r2'] = float(r2_score(y_test, predictions))
             metrics['rmse'] = float(mean_squared_error(y_test, predictions) ** 0.5)
             metrics['mae'] = float(mean_absolute_error(y_test, predictions))
+
+        # --- ADD TRAIN/TEST HEALTH COMPARISON ---
+        results_data = {'metrics': metrics}
+
+        # 1. Calculate scores for both buckets
+        if is_regression:
+            train_score = model.score(X_train, y_train)  # Training R2
+            test_score = results_data['metrics']['r2']   # Test R2 (already calculated)
+            metric_name = "R² Score"
+        else:
+            train_score = model.score(X_train, y_train)  # Training Accuracy
+            test_score = results_data['metrics']['accuracy'] # Test Accuracy
+            metric_name = "Accuracy"
+
+        # 2. Logic to detect health status
+        gap = train_score - test_score
+        health_status = "Stable"
+        health_msg = "The model generalizes well and is ready for real-world use."
+        color_code = "green"
+
+        if gap > 0.15:  # If the gap is more than 15%, it's overfitting
+            health_status = "Overfitting"
+            health_msg = f"High {metric_name} on training but low on testing. The model is memorizing noise. Try increasing 'Min Samples to Split' or reducing 'Max Depth'."
+            color_code = "red"
+        elif test_score < 0.5:  # If both scores are bad
+            health_status = "Underfitting"
+            health_msg = f"The model is too simple to find patterns. Try increasing 'Estimators' or choosing a more complex algorithm."
+            color_code = "yellow"
+
+        # 3. Add to your results JSON
+        results_data['model_health'] = {
+            'status': health_status,
+            'message': health_msg,
+            'train_score': round(train_score, 4),
+            'gap': round(gap, 4),
+            'color': color_code
+        }
             
-        return jsonify({'status': 'success', 'metrics': metrics})
+        return jsonify({
+            'status': 'success', 
+            'metrics': metrics,
+            'best_params': best_params,
+            'cv_score': cv_score,
+            'is_auto_tuned': is_auto_tune,
+            'model_health': results_data['model_health']
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
