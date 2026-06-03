@@ -5,6 +5,8 @@ import Plot from 'react-plotly.js';
 import UploadDataset from './components/UploadDataset';
 import ExperimentConfig from './components/ExperimentConfig';
 
+const API_URL = import.meta.env.VITE_API_URL || 'https://ml-studio-p2hr.onrender.com';
+
 // --- COMPONENT: DNA Background ---
 const DNABackground = () => {
   const canvasRef = useRef(null);
@@ -175,7 +177,7 @@ function App() {
     setEdaIsDrawing(true);
     setError(null);
     try {
-      const response = await fetch('http://127.0.0.1:5000/plot', {
+      const response = await fetch(`${API_URL}/plot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: edaChartType, x: edaX, y: edaY })
@@ -193,7 +195,7 @@ function App() {
   const trainModel = async (config) => {
     setIsLoading(true); setError(null); setResults(null);
     try {
-      const response = await fetch('http://127.0.0.1:5000/train', {
+      const response = await fetch(`${API_URL}/train`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config),
       });
       const data = await response.json();
@@ -224,7 +226,7 @@ function App() {
     setIsAnalyzing(true);
     setError(null);
     try {
-      const response = await fetch('http://127.0.0.1:5000/analyze', {
+      const response = await fetch(`${API_URL}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -246,7 +248,7 @@ function App() {
   };
 
   const handleDownloadModel = () => {
-    window.location.href = 'http://127.0.0.1:5000/download';
+    window.location.href = `${API_URL}/download`;
   };
 
   return (

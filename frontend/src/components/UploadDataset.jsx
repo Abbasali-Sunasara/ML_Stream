@@ -2,6 +2,8 @@ import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { UploadCloud, FileText, Loader2, AlertCircle } from 'lucide-react';
 
+const API_URL = import.meta.env.VITE_API_URL || 'https://ml-studio-p2hr.onrender.com';
+
 export default function UploadDataset({ onUploadComplete }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
@@ -17,7 +19,7 @@ export default function UploadDataset({ onUploadComplete }) {
 
     try {
       // CHANGED PORT TO 5000 (Flask)
-      const response = await fetch('http://127.0.0.1:5000/upload', { 
+      const response = await fetch(`${API_URL}/upload`, { 
         method: 'POST',
         body: formData,
       });
