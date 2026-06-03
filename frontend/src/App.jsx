@@ -267,7 +267,7 @@ function App() {
                 <div className="absolute inset-0 border-4 border-brand-indigo rounded-full border-t-transparent animate-spin"></div>
                 <Cpu className="absolute inset-0 m-auto w-10 h-10 text-brand-purple animate-pulse" />
              </div>
-             <h2 className="text-2xl font-bold text-white mb-2">Training Neural Network</h2>
+             <h2 className="text-2xl font-bold text-white mb-2">Training Model</h2>
              <p className="text-slate-400 font-mono">Optimizing weights & biases...</p>
           </motion.div>
         )}
@@ -280,7 +280,7 @@ function App() {
             <motion.div key="landing" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full max-w-6xl flex flex-col md:flex-row items-center gap-16">
               <div className="flex-1 space-y-8 text-center md:text-left z-20">
                 <div className="space-y-2">
-                  <h1 className="text-6xl md:text-8xl font-bold tracking-tighter text-white leading-[1] drop-shadow-2xl">ML <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-indigo to-brand-purple">Studio</span></h1>
+                  <h1 className="text-6xl md:text-8xl font-bold tracking-tighter text-white leading-[1] drop-shadow-2xl">ML <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-indigo to-brand-purple">Stream</span></h1>
                   <div className="text-xl md:text-2xl text-slate-400 h-8 font-mono"><TypewriterText text="> System Online. Awaiting Data..." /></div>
                 </div>
                 <p className="text-lg text-slate-500 max-w-xl mx-auto md:mx-0 leading-relaxed">The comprehensive platform for machine learning development. Import datasets, visually profile distributions, and train professional models.</p>
