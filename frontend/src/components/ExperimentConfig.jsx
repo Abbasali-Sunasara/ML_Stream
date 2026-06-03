@@ -184,7 +184,6 @@ export default function ExperimentConfig({ dataset, onStartTraining }) {
       task_type: taskType,
       algorithm: algorithm, 
       auto_tune: isAutoTune,
-      search_intensity: searchIntensity,
       hyperparameters: isProMode && !isAutoTune ? hp : null,
       preprocessing: {
         missing_value_strategy: missingValue,

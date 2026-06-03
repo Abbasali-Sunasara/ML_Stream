@@ -22,7 +22,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, confusion_matrix, mean_absolute_error
-from sklearn.model_selection import RandomizedSearchCV, KFold, StratifiedKFold
+from sklearn.model_selection import RandomizedSearchCV, KFold
 
 # Algorithms
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -72,14 +72,7 @@ def build_model(algorithm, is_regression, hp_parsed):
         if algorithm == 'linear_regression':
             return LinearRegression(**{k: v for k, v in hp_parsed.items() if k in ['fit_intercept', 'copy_X', 'n_jobs']})
         if algorithm == 'random_forest':
-            params = {k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']}
-            # Enforce safe defaults for server environments
-            params['n_jobs'] = 1
-            if 'n_estimators' in params:
-                params['n_estimators'] = min(int(params['n_estimators']), 200)
-            else:
-                params['n_estimators'] = 100
-            return RandomForestRegressor(**params)
+            return RandomForestRegressor(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']})
         if algorithm == 'decision_tree':
             return DecisionTreeRegressor(**{k: v for k, v in hp_parsed.items() if k in ['max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'random_state']})
         if algorithm == 'knn':
@@ -97,13 +90,7 @@ def build_model(algorithm, is_regression, hp_parsed):
         filtered['max_iter'] = filtered.get('max_iter', 1000)
         return LogisticRegression(**filtered)
     if algorithm == 'random_forest':
-        params = {k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']}
-        params['n_jobs'] = 1
-        if 'n_estimators' in params:
-            params['n_estimators'] = min(int(params['n_estimators']), 200)
-        else:
-            params['n_estimators'] = 100
-        return RandomForestClassifier(**params)
+        return RandomForestClassifier(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']})
     if algorithm == 'decision_tree':
         return DecisionTreeClassifier(**{k: v for k, v in hp_parsed.items() if k in ['max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'random_state']})
     if algorithm == 'knn':
@@ -307,60 +294,26 @@ def train_model():
         cv_score = None
 
         if is_auto_tune and algorithm in PARAM_GRIDS:
-            # 1. Handle Small Dataset Edge Case (Adjust Folds Safely)
-            if is_regression:
-                n_samples = X_train.shape[0]
-                n_folds = min(5, n_samples) if n_samples >= 2 else 2
-                cv_strategy = KFold(n_splits=max(2, n_folds), shuffle=True, random_state=42)
-            else:
-                min_class_count = int(pd.Series(y_train).value_counts().min()) if len(y_train) else 0
-                if min_class_count < 2:
-                    # Not enough samples per class for CV search; fall back to a normal fit.
-                    model.fit(X_train, y_train)
-                    search = None
-                else:
-                    n_folds = min(5, min_class_count)
-                    cv_strategy = StratifiedKFold(n_splits=max(2, n_folds), shuffle=True, random_state=42)
+            # 1. Handle Small Dataset Edge Case (Adjust Folds)
+            n_samples = X_train.shape[0]
+            n_folds = min(5, n_samples) if n_samples >= 2 else 2
             
-            if 'search' not in locals() or search is not None:
-                # 2. Setup Randomized Search (safe defaults for hosted environments)
-                requested_iter = int(config.get('search_intensity', 10)) if config.get('search_intensity') is not None else 10
-                n_iter = max(1, min(requested_iter, 10))  # Cap iterations to avoid long jobs / OOM
-
-                search = RandomizedSearchCV(
-                    estimator=model,
-                    param_distributions=PARAM_GRIDS[algorithm],
-                    n_iter=n_iter,
-                    cv=cv_strategy,
-                    scoring='r2' if is_regression else 'accuracy',
-                    n_jobs=1,  # force single-process search to reduce memory/worker pressure
-                    random_state=42
-                )
-
-                # Run search with a guarded fallback — if it fails (timeout / memory), fallback to a normal fit
-                try:
-                    search.fit(X_train, y_train)
-                    model = search.best_estimator_
-                    # Record the best params found to send back to UI
-                    best_params = search.best_params_
-                    cv_score = float(search.best_score_)
-                except MemoryError as me:
-                    print('MemoryError during RandomizedSearchCV, falling back to direct fit:', me)
-                    search = None
-                    model.fit(X_train, y_train)
-                    best_params = hp_parsed
-                    cv_score = None
-                except Exception as ex:
-                    # Log and gracefully fallback so the worker doesn't crash or get killed
-                    print('Auto-tune failed or raised during search.fit:', ex)
-                    search = None
-                    try:
-                        model.fit(X_train, y_train)
-                    except Exception as fit_ex:
-                        print('Fallback fit also failed:', fit_ex)
-                        raise
-                    best_params = hp_parsed
-                    cv_score = None
+            # 2. Setup Randomized Search
+            search = RandomizedSearchCV(
+                estimator=model,
+                param_distributions=PARAM_GRIDS[algorithm],
+                n_iter=10, # Try 10 random combinations
+                cv=n_folds,
+                scoring='r2' if is_regression else 'accuracy',
+                n_jobs=-1, # Use all CPU cores for speed
+                random_state=42
+            )
+            
+            search.fit(X_train, y_train)
+            model = search.best_estimator_
+            # Record the best params found to send back to UI
+            best_params = search.best_params_
+            cv_score = float(search.best_score_)
         else:
             # Standard Manual Fit
             model.fit(X_train, y_train)
