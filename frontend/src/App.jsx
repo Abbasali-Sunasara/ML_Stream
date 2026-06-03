@@ -82,7 +82,7 @@ const Navbar = ({ hasDataset, workspaceMode, onReset, onSwitchMode }) => {
     </div>
     <div className="text-left">
        <span className="block text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand-indigo via-brand-purple to-brand-cyan">
-         ML Studio
+         ML Stream
        </span>
     </div>
 </div>
@@ -415,7 +415,7 @@ function App() {
             </motion.div>
 
           ) : (
-            /* ML STUDIO WORKSPACE */
+            /* ML STREAM WORKSPACE */
             <motion.div key="ml-workspace" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-6xl h-full flex flex-col">
               <div className="flex items-center justify-between px-6 py-4 rounded-t-2xl bg-dark-800/80 backdrop-blur-xl border border-white/10 border-b-0">
                  <div className="flex items-center gap-6">
