@@ -32,7 +32,11 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.svm import SVC, SVR
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 
-app = Flask(__name__)
+# --- FRONTEND SERVING ---
+import os.path as osp
+frontend_build_path = osp.join(osp.dirname(__file__), '../frontend/dist')
+
+app = Flask(__name__, static_folder=frontend_build_path, static_url_path='')
 CORS(app)
 
 UPLOAD_FOLDER = 'uploads'
@@ -497,6 +501,23 @@ def analyze_results():
     except Exception as e:
         app.logger.exception('Error in /analyze route')
         return jsonify({'error': f'Analyze failed: {str(e)}'}), 500
+
+
+# ------------------------------------------------------------------
+# --- 7. CATCH-ALL: SERVE FRONTEND (React SPA) ---
+# ------------------------------------------------------------------
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_frontend(path):
+    """Serve the React frontend for all non-API routes (SPA catch-all)."""
+    if path and osp.exists(osp.join(app.static_folder, path)):
+        return app.send_static_file(path)
+    # For SPA, serve index.html for all non-file routes
+    return app.send_static_file('index.html')
+
+
+if __name__ == '__main__':
+    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
 
 
 if __name__ == '__main__':
