@@ -22,7 +22,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, confusion_matrix, mean_absolute_error
-from sklearn.model_selection import RandomizedSearchCV, KFold
+from sklearn.model_selection import RandomizedSearchCV, KFold, StratifiedKFold
 
 # Algorithms
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -294,26 +294,38 @@ def train_model():
         cv_score = None
 
         if is_auto_tune and algorithm in PARAM_GRIDS:
-            # 1. Handle Small Dataset Edge Case (Adjust Folds)
-            n_samples = X_train.shape[0]
-            n_folds = min(5, n_samples) if n_samples >= 2 else 2
+            # 1. Handle Small Dataset Edge Case (Adjust Folds Safely)
+            if is_regression:
+                n_samples = X_train.shape[0]
+                n_folds = min(5, n_samples) if n_samples >= 2 else 2
+                cv_strategy = KFold(n_splits=max(2, n_folds), shuffle=True, random_state=42)
+            else:
+                min_class_count = int(pd.Series(y_train).value_counts().min()) if len(y_train) else 0
+                if min_class_count < 2:
+                    # Not enough samples per class for CV search; fall back to a normal fit.
+                    model.fit(X_train, y_train)
+                    search = None
+                else:
+                    n_folds = min(5, min_class_count)
+                    cv_strategy = StratifiedKFold(n_splits=max(2, n_folds), shuffle=True, random_state=42)
             
-            # 2. Setup Randomized Search
-            search = RandomizedSearchCV(
-                estimator=model,
-                param_distributions=PARAM_GRIDS[algorithm],
-                n_iter=10, # Try 10 random combinations
-                cv=n_folds,
-                scoring='r2' if is_regression else 'accuracy',
-                n_jobs=-1, # Use all CPU cores for speed
-                random_state=42
-            )
-            
-            search.fit(X_train, y_train)
-            model = search.best_estimator_
-            # Record the best params found to send back to UI
-            best_params = search.best_params_
-            cv_score = float(search.best_score_)
+            if 'search' not in locals() or search is not None:
+                # 2. Setup Randomized Search
+                search = RandomizedSearchCV(
+                    estimator=model,
+                    param_distributions=PARAM_GRIDS[algorithm],
+                    n_iter=int(config.get('search_intensity', 10)),
+                    cv=cv_strategy,
+                    scoring='r2' if is_regression else 'accuracy',
+                    n_jobs=-1, # Use all CPU cores for speed
+                    random_state=42
+                )
+                
+                search.fit(X_train, y_train)
+                model = search.best_estimator_
+                # Record the best params found to send back to UI
+                best_params = search.best_params_
+                cv_score = float(search.best_score_)
         else:
             # Standard Manual Fit
             model.fit(X_train, y_train)
