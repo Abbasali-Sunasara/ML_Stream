@@ -72,7 +72,14 @@ def build_model(algorithm, is_regression, hp_parsed):
         if algorithm == 'linear_regression':
             return LinearRegression(**{k: v for k, v in hp_parsed.items() if k in ['fit_intercept', 'copy_X', 'n_jobs']})
         if algorithm == 'random_forest':
-            return RandomForestRegressor(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']})
+            params = {k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']}
+            # Enforce safe defaults for server environments
+            params['n_jobs'] = 1
+            if 'n_estimators' in params:
+                params['n_estimators'] = min(int(params['n_estimators']), 200)
+            else:
+                params['n_estimators'] = 100
+            return RandomForestRegressor(**params)
         if algorithm == 'decision_tree':
             return DecisionTreeRegressor(**{k: v for k, v in hp_parsed.items() if k in ['max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'random_state']})
         if algorithm == 'knn':
@@ -90,7 +97,13 @@ def build_model(algorithm, is_regression, hp_parsed):
         filtered['max_iter'] = filtered.get('max_iter', 1000)
         return LogisticRegression(**filtered)
     if algorithm == 'random_forest':
-        return RandomForestClassifier(**{k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']})
+        params = {k: v for k, v in hp_parsed.items() if k in ['n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'bootstrap', 'random_state']}
+        params['n_jobs'] = 1
+        if 'n_estimators' in params:
+            params['n_estimators'] = min(int(params['n_estimators']), 200)
+        else:
+            params['n_estimators'] = 100
+        return RandomForestClassifier(**params)
     if algorithm == 'decision_tree':
         return DecisionTreeClassifier(**{k: v for k, v in hp_parsed.items() if k in ['max_depth', 'min_samples_split', 'min_samples_leaf', 'max_features', 'random_state']})
     if algorithm == 'knn':
@@ -310,22 +323,44 @@ def train_model():
                     cv_strategy = StratifiedKFold(n_splits=max(2, n_folds), shuffle=True, random_state=42)
             
             if 'search' not in locals() or search is not None:
-                # 2. Setup Randomized Search
+                # 2. Setup Randomized Search (safe defaults for hosted environments)
+                requested_iter = int(config.get('search_intensity', 10)) if config.get('search_intensity') is not None else 10
+                n_iter = max(1, min(requested_iter, 10))  # Cap iterations to avoid long jobs / OOM
+
                 search = RandomizedSearchCV(
                     estimator=model,
                     param_distributions=PARAM_GRIDS[algorithm],
-                    n_iter=int(config.get('search_intensity', 10)),
+                    n_iter=n_iter,
                     cv=cv_strategy,
                     scoring='r2' if is_regression else 'accuracy',
-                    n_jobs=-1, # Use all CPU cores for speed
+                    n_jobs=1,  # force single-process search to reduce memory/worker pressure
                     random_state=42
                 )
-                
-                search.fit(X_train, y_train)
-                model = search.best_estimator_
-                # Record the best params found to send back to UI
-                best_params = search.best_params_
-                cv_score = float(search.best_score_)
+
+                # Run search with a guarded fallback — if it fails (timeout / memory), fallback to a normal fit
+                try:
+                    search.fit(X_train, y_train)
+                    model = search.best_estimator_
+                    # Record the best params found to send back to UI
+                    best_params = search.best_params_
+                    cv_score = float(search.best_score_)
+                except MemoryError as me:
+                    print('MemoryError during RandomizedSearchCV, falling back to direct fit:', me)
+                    search = None
+                    model.fit(X_train, y_train)
+                    best_params = hp_parsed
+                    cv_score = None
+                except Exception as ex:
+                    # Log and gracefully fallback so the worker doesn't crash or get killed
+                    print('Auto-tune failed or raised during search.fit:', ex)
+                    search = None
+                    try:
+                        model.fit(X_train, y_train)
+                    except Exception as fit_ex:
+                        print('Fallback fit also failed:', fit_ex)
+                        raise
+                    best_params = hp_parsed
+                    cv_score = None
         else:
             # Standard Manual Fit
             model.fit(X_train, y_train)
