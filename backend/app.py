@@ -401,6 +401,12 @@ def download_model():
     return send_file(path, as_attachment=True) if os.path.exists(path) else (jsonify({'error': 'No model'}), 404)
 
 
+@app.route('/health', methods=['GET'])
+def health():
+    """Simple health check for deploy/runtime verification."""
+    return jsonify({'status': 'ok'}), 200
+
+
 # ------------------------------------------------------------------
 # --- 6. AI ANALYSIS ROUTE ---
 # ------------------------------------------------------------------
