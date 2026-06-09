@@ -1,5 +1,8 @@
 {
+  "engines": {
+    "node": "18.x"
+  },
   "scripts": {
-    "heroku-postbuild": "cd frontend && npm ci && npm run build"
+    "heroku-postbuild": "npm --prefix frontend ci && npm --prefix frontend run build"
   }
 }
